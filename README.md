@@ -145,6 +145,10 @@ Gas used   : 19239
 Call return msg [Execute Success]
 ```
 
+# Build docker image
+
+`docker build -t orai/cosmwasm-simulate:0.11-alpine -f Dockerfile .`
+
 # Future
 
 - More customization function
