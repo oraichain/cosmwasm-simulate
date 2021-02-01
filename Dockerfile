@@ -1,12 +1,12 @@
-FROM rust:alpine:alpine3.12 AS rust-builder
+# rust is built with debian slim
+FROM rustlang/rust:nightly-slim AS rust-builder
 
 WORKDIR /code
 COPY . /code
 
-RUN rustup toolchain install nightly
-RUN cargo +nightly build --release
+RUN cargo build --release
 
-FROM alpine:3.12
+FROM debian:stable-slim
 
 WORKDIR /code
 COPY --from=rust-builder /code/target/release/cosmwasm-simulate /usr/bin/cosmwasm-simulate
