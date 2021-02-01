@@ -147,7 +147,7 @@ Call return msg [Execute Success]
 
 # Build docker image
 
-`docker build -t orai/cosmwasm-simulate:0.11-alpine -f Dockerfile .`
+`docker build -t orai/cosmwasm-simulate:0.11-slim -f Dockerfile .`
 
 # Future
 
