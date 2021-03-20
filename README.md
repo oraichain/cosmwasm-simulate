@@ -17,6 +17,8 @@ cosmwasm-simulate is developed for Cosmwasm Smart Contract system, the main func
 # Build
 
 ```shell script
+docker-compose up -d
+docker-compose exec simulate bash
 rustup toolchain install nightly
 cargo +nightly build --release
 ```
