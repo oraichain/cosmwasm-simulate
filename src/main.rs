@@ -1,9 +1,9 @@
 extern crate clap;
 
 pub mod contract_vm;
-
 use crate::contract_vm::engine::ContractInstance;
 use clap::{App, Arg};
+use std::collections::HashMap;
 use std::io;
 use std::ops::Add;
 
@@ -151,27 +151,40 @@ fn simulate_by_auto_analyze(engine: &mut ContractInstance) {
             continue;
         }
         print!("Input Call param from [ ");
+        let mut first = true;
         for k in engine.analyzer.map_of_member.keys() {
-            print!("{} | ", k);
+            if first {
+                first = false;
+            } else {
+                print!(" | ")
+            }
+            print!("{}", k);
         }
         print!(" ]\n");
         input_with_out_handle(&mut call_param);
 
-        let msg_type = match engine.analyzer.map_of_member.get(call_param.as_str()) {
-            None => {
-                println!("can not find msg type {}", call_param.as_str());
-                continue;
-            }
-            Some(v) => v,
-        };
+        let msg_type: &HashMap<String, Vec<contract_vm::analyzer::Member>> =
+            match engine.analyzer.map_of_member.get(call_param.as_str()) {
+                None => {
+                    println!("can not find msg type {}", call_param.as_str());
+                    continue;
+                }
+                Some(v) => v,
+            };
         let len = msg_type.len();
-        if len > 1 {
+        if len > 0 {
             //only one msg
             is_enum = true;
 
             print!("Input Call param from [ ");
+            first = true;
             for k in msg_type.keys() {
-                print!("{} | ", k);
+                if first {
+                    first = false;
+                } else {
+                    print!(" | ")
+                }
+                print!("{}", k);
             }
             print!(" ]\n");
             call_param.clear();
@@ -181,6 +194,9 @@ fn simulate_by_auto_analyze(engine: &mut ContractInstance) {
         let msg = match msg_type.get(call_param.as_str()) {
             None => {
                 println!("can not find msg type {}", call_param.as_str());
+                for k in msg_type.keys() {
+                    print!("{}", k);
+                }
                 continue;
             }
             Some(v) => v,
