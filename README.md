@@ -19,8 +19,8 @@ cosmwasm-simulate is developed for Cosmwasm Smart Contract system, the main func
 ```shell script
 docker-compose up -d
 docker-compose exec simulate bash
-rustup toolchain install nightly
-cargo +nightly build --release
+cargo build --release
+ln -s /workspace/target/release/cosmwasm-simulate /usr/bin/cosmwasm-simulate
 ```
 
 # Guide
@@ -30,14 +30,13 @@ cargo +nightly build --release
 - Download wasm file
 
 ```
-cd ~/github.com/cosmwasm/cosmwasm-examples/erc20/
-wget https://github.com/CosmWasm/cosmwasm-examples/raw/master/erc20/contract.wasm
+wget https://github.com/CosmWasm/cosmwasm-examples/raw/master/erc20/contract.wasm -O /workspace/artifacts
 ```
 
 - Run cosmwasm-simulate like:
 
 ```shell script
-cosmwasm-simulate ~/github.com/cosmwasm/cosmwasm-examples/erc20/contract.wasm
+cosmwasm-simulate  /workspace/artifacts/contract.wasm
 ```
 
 - Command like follow:
