@@ -20,7 +20,7 @@ static COMPILE_GAS_LIMIT: u64 = 10_000_000_000;
 
 pub struct ContractInstance {
     pub module: Module,
-    pub instance: Instance<mock::MockStorage, mock::MockApi, MockQuerier>,
+    pub instance: Instance<mock::MockStorage, mock::MockApi, MockQuerier<mock::SpecialQuery>>,
     pub wasm_file: String,
     pub env: cosmwasm_std::Env,
     pub message: cosmwasm_std::MessageInfo,
@@ -68,7 +68,11 @@ impl ContractInstance {
 
     fn make_instance(
         md: Module,
-        inst: cosmwasm_vm::Instance<mock::MockStorage, mock::MockApi, MockQuerier>,
+        inst: cosmwasm_vm::Instance<
+            mock::MockStorage,
+            mock::MockApi,
+            MockQuerier<mock::SpecialQuery>,
+        >,
         file: String,
     ) -> ContractInstance {
         return ContractInstance {
@@ -160,6 +164,9 @@ impl ContractInstance {
                 ContractInstance::dump_result(&msg.key, msg.value.as_bytes());
             }
         } else if func_type == "query" {
+            // check param if it is custom, we will try to check for oracle special query to implement, otherwise forward
+            // to virtual machine
+            println!("params : {}", param);
             let query_result =
                 cosmwasm_vm::call_query(&mut self.instance, &self.env, param.as_bytes())
                     .unwrap()

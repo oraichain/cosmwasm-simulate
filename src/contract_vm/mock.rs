@@ -1,3 +1,14 @@
+extern crate base64;
+
+use crate::contract_vm::watcher;
+
+use cosmwasm_std::testing::MockQuerierCustomHandlerResult;
+use cosmwasm_std::{
+    to_binary, Binary, CanonicalAddr, Coin, CustomQuery, HumanAddr, SystemError, SystemResult,
+};
+use cosmwasm_vm::testing::MockQuerier;
+use cosmwasm_vm::{Api, Extern, FfiError, FfiResult, Storage};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 #[cfg(feature = "iterator")]
 use std::{
@@ -5,14 +16,10 @@ use std::{
     ops::{Bound, RangeBounds},
 };
 
-use crate::contract_vm::watcher;
-use cosmwasm_std::{Binary, CanonicalAddr, Coin, HumanAddr};
-use cosmwasm_vm::{Api, Extern, FfiError, FfiResult, Storage};
-
 const GAS_COST_HUMANIZE: u64 = 44;
 const GAS_COST_CANONICALIZE: u64 = 55;
 
-///mock storage
+///mock storage, and custom query for oracle application
 #[derive(Default, Debug)]
 pub struct MockStorage {
     data: BTreeMap<Vec<u8>, Vec<u8>>,
@@ -143,15 +150,86 @@ impl Api for MockApi {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "snake_case")]
+/// An implementation of QueryRequest::Custom to show this works and can be extended in the contract
+pub enum SpecialQuery {
+    Fetch {
+        url: String,
+        method: Option<String>,
+        body: Option<String>,
+        authorization: Option<String>,
+    },
+}
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SpecialResponse {
+    data: String,
+}
+
+fn fetch(
+    url: &String,
+    method: &Option<String>,
+    body: &Option<String>,
+    authorization: &Option<String>,
+) -> MockQuerierCustomHandlerResult {
+    let mut req = match method {
+        Some(v) => ureq::request(v, url),
+        None => ureq::get(url),
+    };
+
+    // borrow ref
+    if authorization.is_some() {
+        req = req.set("Authorization", authorization.as_ref().unwrap());
+    }
+
+    let resp = match body {
+        Some(v) => req.send_string(v),
+        None => req.call(),
+    };
+
+    match resp {
+        Ok(response) => {
+            // return contract result
+            let input = response.into_string().unwrap_or_default();
+            let result = base64::encode(input.as_bytes());
+            SystemResult::Ok(to_binary(&result).into())
+        }
+        Err(err) => SystemResult::Err(SystemError::InvalidRequest {
+            error: err.to_string(),
+            request: Binary::from([]),
+        }),
+    }
+}
+
+impl CustomQuery for SpecialQuery {}
+
+pub fn custom_query_execute(query: &SpecialQuery) -> MockQuerierCustomHandlerResult {
+    match query {
+        SpecialQuery::Fetch {
+            url,
+            method,
+            body,
+            authorization,
+        } => fetch(url, method, body, authorization),
+    }
+}
+
 pub fn new_mock(
     canonical_length: usize,
     contract_balance: &[Coin],
     contract_addr: &str,
-) -> Extern<MockStorage, MockApi, cosmwasm_vm::testing::MockQuerier> {
+) -> Extern<MockStorage, MockApi, MockQuerier<SpecialQuery>> {
     let human_addr = HumanAddr::from(contract_addr);
+    // update custom_querier
+    let mut custom_querier: MockQuerier<SpecialQuery> =
+        MockQuerier::new(&[(&human_addr, contract_balance)]);
+    custom_querier =
+        custom_querier.with_custom_handler(|query| -> MockQuerierCustomHandlerResult {
+            custom_query_execute(&query)
+        });
     Extern {
         storage: MockStorage::default(),
         api: MockApi::new(canonical_length),
-        querier: cosmwasm_vm::testing::MockQuerier::new(&[(&human_addr, contract_balance)]),
+        querier: custom_querier,
     }
 }

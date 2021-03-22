@@ -5,4 +5,5 @@ services:
     tty: true 
     working_dir: /workspace
     volumes:
+      - .registry_cache:/usr/local/cargo/registry:delegated
       - ./:/workspace

@@ -21,6 +21,9 @@ docker-compose up -d
 docker-compose exec simulate bash
 cargo build --release
 ln -s /workspace/target/release/cosmwasm-simulate /usr/bin/cosmwasm-simulate
+
+# suggestion
+rustup component add rls rust-analysis rust-src
 ```
 
 # Guide
