@@ -150,18 +150,29 @@ fn simulate_by_auto_analyze(engine: &mut ContractInstance) {
             );
             continue;
         }
-        print!("Input Call param from [ ");
+
         let mut first = true;
-        for k in engine.analyzer.map_of_member.keys() {
-            if first {
-                first = false;
-            } else {
-                print!(" | ")
+        // default messages
+        if call_type.eq("init") && engine.analyzer.map_of_member.contains_key("InitMsg") {
+            call_param = "InitMsg".to_string();
+        } else if call_type.eq("handle") && engine.analyzer.map_of_member.contains_key("HandleMsg")
+        {
+            call_param = "HandleMsg".to_string();
+        } else if call_type.eq("query") && engine.analyzer.map_of_member.contains_key("QueryMsg") {
+            call_param = "QueryMsg".to_string();
+        } else {
+            print!("Input Call param from [ ");
+            for k in engine.analyzer.map_of_member.keys() {
+                if first {
+                    first = false;
+                } else {
+                    print!(" | ")
+                }
+                print!("{}", k);
             }
-            print!("{}", k);
+            print!(" ]\n");
+            input_with_out_handle(&mut call_param);
         }
-        print!(" ]\n");
-        input_with_out_handle(&mut call_param);
 
         let msg_type: &HashMap<String, Vec<contract_vm::analyzer::Member>> =
             match engine.analyzer.map_of_member.get(call_param.as_str()) {
@@ -173,22 +184,25 @@ fn simulate_by_auto_analyze(engine: &mut ContractInstance) {
             };
         let len = msg_type.len();
         if len > 0 {
-            //only one msg
             is_enum = true;
-
-            print!("Input Call param from [ ");
-            first = true;
-            for k in msg_type.keys() {
-                if first {
-                    first = false;
-                } else {
-                    print!(" | ")
+            //only one msg
+            if msg_type.len() == 1 {
+                call_param = msg_type.keys().next().unwrap().to_string();
+            } else {
+                print!("Input Call param from [ ");
+                first = true;
+                for k in msg_type.keys() {
+                    if first {
+                        first = false;
+                    } else {
+                        print!(" | ")
+                    }
+                    print!("{}", k);
                 }
-                print!("{}", k);
+                print!(" ]\n");
+                call_param.clear();
+                input_with_out_handle(&mut call_param);
             }
-            print!(" ]\n");
-            call_param.clear();
-            input_with_out_handle(&mut call_param);
         }
 
         let msg = match msg_type.get(call_param.as_str()) {
@@ -231,13 +245,14 @@ fn simulate_by_json(engine: &mut ContractInstance) {
 }
 
 fn start_simulate(wasmfile: &str) -> Result<bool, String> {
-    println!("loading {}", wasmfile);
     let mut engine = match contract_vm::build_simulation(wasmfile) {
         Err(e) => return Err(e),
         Ok(instance) => instance,
     };
-
-    engine.show_module_info();
+    // enable debug
+    if cfg!(debug_assertions) {
+        engine.show_module_info();
+    }
     if engine.analyzer.auto_load_json_schema(&engine.wasm_file) {
         simulate_by_auto_analyze(&mut engine);
     } else {

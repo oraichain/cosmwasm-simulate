@@ -1,6 +1,11 @@
 extern crate cosmwasm_std;
 extern crate cosmwasm_vm;
 extern crate serde_json;
+use self::cosmwasm_std::Uint128;
+use self::cosmwasm_vm::testing::MockQuerier;
+use self::cosmwasm_vm::Instance;
+use crate::contract_vm::{analyzer, mock};
+use cosmwasm_std::ContractResult;
 use std::fmt::Write;
 use wasmer_middleware_common::metering;
 use wasmer_runtime_core::{
@@ -8,14 +13,9 @@ use wasmer_runtime_core::{
     codegen::{MiddlewareChain, StreamingCompiler},
     module::Module,
 };
-
-use self::cosmwasm_std::Uint128;
-use self::cosmwasm_vm::testing::MockQuerier;
-use self::cosmwasm_vm::Instance;
-use crate::contract_vm::{analyzer, mock};
 use wasmer_singlepass_backend::ModuleCodeGenerator as SinglePassMCG;
 
-static DEFAULT_GAS_LIMIT: u64 = 500_000;
+static DEFAULT_GAS_LIMIT: u64 = 500_000_000;
 static COMPILE_GAS_LIMIT: u64 = 10_000_000_000;
 
 pub struct ContractInstance {
@@ -45,7 +45,9 @@ impl ContractInstance {
             Err(e) => return Err(e),
             Ok(code) => code,
         };
-        println!("Compiling code");
+        if cfg!(debug_assertions) {
+            println!("Compiling code");
+        }
         let md = wasmer_runtime_core::compile_with(wasm.as_slice(), compiler().as_ref()).unwrap();
         let inst = match cosmwasm_vm::Instance::from_code(
             wasm.as_slice(),
@@ -168,11 +170,14 @@ impl ContractInstance {
             // to virtual machine
             println!("params : {}", param);
             let query_result =
-                cosmwasm_vm::call_query(&mut self.instance, &self.env, param.as_bytes())
-                    .unwrap()
-                    .unwrap();
+                cosmwasm_vm::call_query(&mut self.instance, &self.env, param.as_bytes()).unwrap();
 
-            ContractInstance::dump_result("query data", query_result.as_slice());
+            match query_result {
+                ContractResult::Ok(val) => {
+                    ContractInstance::dump_result("query data", val.as_slice());
+                }
+                ContractResult::Err(err) => println!("Error: {}", err.to_string()),
+            };
         } else {
             println!("wrong dispatcher call {}", func_type);
         }
