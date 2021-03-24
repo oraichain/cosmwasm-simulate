@@ -19,7 +19,7 @@ cosmwasm-simulate is developed for Cosmwasm Smart Contract system, the main func
 ```shell script
 docker-compose up -d
 docker-compose exec simulate bash
-cargo build --release
+RUSTFLAGS='-C link-arg=-s' cargo build --release
 ln -s /workspace/target/release/cosmwasm-simulate /usr/bin/cosmwasm-simulate
 
 # suggestion
