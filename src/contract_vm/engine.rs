@@ -15,7 +15,7 @@ use wasmer_runtime_core::{
 };
 use wasmer_singlepass_backend::ModuleCodeGenerator as SinglePassMCG;
 
-static DEFAULT_GAS_LIMIT: u64 = 500_000_000;
+static DEFAULT_GAS_LIMIT: u64 = 500_000_000_000_000;
 static COMPILE_GAS_LIMIT: u64 = 10_000_000_000;
 
 pub struct ContractInstance {
