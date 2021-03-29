@@ -4,8 +4,40 @@ pub mod contract_vm;
 use crate::contract_vm::engine::ContractInstance;
 use clap::{App, Arg};
 use std::collections::HashMap;
-use std::io;
 use std::ops::Add;
+
+#[macro_use]
+extern crate lazy_mut;
+lazy_mut! {
+    static mut R_L_EDITOR: rustyline::Editor<()> = rustyline::Editor::new();
+}
+
+fn input_with_out_handle(input_data: &mut String) -> bool {
+    unsafe {
+        let readline = R_L_EDITOR.readline(">> ");
+
+        match readline {
+            Ok(line) => {
+                input_data.push_str(line.as_str());
+                if input_data.ends_with("\n") {
+                    input_data.remove(input_data.len() - 1);
+                }
+            }
+
+            // Ctrl + C to break
+            Err(rustyline::error::ReadlineError::Interrupted) => {
+                std::process::exit(0);
+            }
+
+            Err(error) => {
+                println!("error: {}", error);
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
 
 fn show_message_type(
     name: &str,
@@ -55,21 +87,6 @@ fn to_json_item(name: &String, data: &String, type_name: &str) -> String {
     }
     params += ",";
     return params;
-}
-
-fn input_with_out_handle(input_data: &mut String) -> bool {
-    match io::stdin().read_line(input_data) {
-        Ok(_n) => {
-            if input_data.ends_with("\n") {
-                input_data.remove(input_data.len() - 1);
-            }
-        }
-        Err(error) => {
-            println!("error: {}", error);
-            return false;
-        }
-    }
-    return true;
 }
 
 fn input_type(

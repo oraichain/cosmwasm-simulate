@@ -8,6 +8,8 @@ version = "0.11.0"
 [features]
 
 [dependencies]
+lazy_mut = "0.1.0"
+rustyline = "8.0.0"
 base64 = "0.13.0"
 clap = "~2.32"
 cosmwasm-std = "0.11.0"

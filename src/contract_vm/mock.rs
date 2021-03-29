@@ -191,6 +191,7 @@ fn fetch(
         Ok(response) => {
             // return contract result
             let input = response.into_string().unwrap_or_default();
+            // smart contract use base64 to decode bytes into structure
             let result = base64::encode(input.as_bytes());
             SystemResult::Ok(to_binary(&result).into())
         }

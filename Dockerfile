@@ -4,7 +4,7 @@ FROM rustlang/rust:nightly-slim AS rust-builder
 WORKDIR /code
 COPY . /code
 
-RUN cargo build --release
+RUN RUSTFLAGS="-C link-arg=-s" cargo build --release
 
 FROM debian:stable-slim
 
