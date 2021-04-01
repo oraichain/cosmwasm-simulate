@@ -1,11 +1,12 @@
 extern crate cosmwasm_std;
 extern crate cosmwasm_vm;
 extern crate serde_json;
-use self::cosmwasm_std::Uint128;
-use self::cosmwasm_vm::testing::MockQuerier;
-use self::cosmwasm_vm::Instance;
+use cosmwasm_std::{ContractResult, Uint128};
+use cosmwasm_vm::testing::MockQuerier;
+use cosmwasm_vm::{Instance, InstanceOptions, Size};
+
 use crate::contract_vm::{analyzer, mock};
-use cosmwasm_std::ContractResult;
+
 use std::fmt::Write;
 use wasmer_middleware_common::metering;
 use wasmer_runtime_core::{
@@ -17,10 +18,12 @@ use wasmer_singlepass_backend::ModuleCodeGenerator as SinglePassMCG;
 
 static DEFAULT_GAS_LIMIT: u64 = 500_000_000_000_000;
 static COMPILE_GAS_LIMIT: u64 = 10_000_000_000;
+const DEFAULT_MEMORY_LIMIT: Size = Size::mebi(16);
+const DEFAULT_PRINT_DEBUG: bool = true;
 
 pub struct ContractInstance {
     pub module: Module,
-    pub instance: Instance<mock::MockStorage, mock::MockApi, MockQuerier<mock::SpecialQuery>>,
+    pub instance: Instance<mock::MockApi, mock::MockStorage, MockQuerier<mock::SpecialQuery>>,
     pub wasm_file: String,
     pub env: cosmwasm_std::Env,
     pub message: cosmwasm_std::MessageInfo,
@@ -49,12 +52,13 @@ impl ContractInstance {
             println!("Compiling code");
         }
         let md = wasmer_runtime_core::compile_with(wasm.as_slice(), compiler().as_ref()).unwrap();
-        let inst = match cosmwasm_vm::Instance::from_code(
-            wasm.as_slice(),
-            deps,
-            DEFAULT_GAS_LIMIT,
-            true,
-        ) {
+        let inst_options = InstanceOptions {
+            gas_limit: DEFAULT_GAS_LIMIT,
+            /// Memory limit in bytes. Use a value that is divisible by the Wasm page size 65536, e.g. full MiBs.
+            memory_limit: DEFAULT_MEMORY_LIMIT,
+            print_debug: DEFAULT_PRINT_DEBUG,
+        };
+        let inst = match cosmwasm_vm::Instance::from_code(wasm.as_slice(), deps, inst_options) {
             Err(e) => {
                 println!("cosmwasm_vm::Instance::from_code return error {}", e);
                 return Err("Instance from code execute failed!".to_string());
@@ -71,8 +75,8 @@ impl ContractInstance {
     fn make_instance(
         md: Module,
         inst: cosmwasm_vm::Instance<
-            mock::MockStorage,
             mock::MockApi,
+            mock::MockStorage,
             MockQuerier<mock::SpecialQuery>,
         >,
         file: String,

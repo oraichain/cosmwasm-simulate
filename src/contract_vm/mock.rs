@@ -7,7 +7,7 @@ use cosmwasm_std::{
     to_binary, Binary, CanonicalAddr, Coin, CustomQuery, HumanAddr, SystemError, SystemResult,
 };
 use cosmwasm_vm::testing::MockQuerier;
-use cosmwasm_vm::{Api, Extern, FfiError, FfiResult, Storage};
+use cosmwasm_vm::{Api, Backend, BackendError, BackendResult, Storage};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 #[cfg(feature = "iterator")]
@@ -32,7 +32,7 @@ impl MockStorage {
 }
 
 impl Storage for MockStorage {
-    fn get(&self, key: &[u8]) -> FfiResult<Option<Vec<u8>>> {
+    fn get(&self, key: &[u8]) -> BackendResult<Option<Vec<u8>>> {
         let gas_info = cosmwasm_vm::GasInfo::with_externally_used(key.len() as u64);
         (Ok(self.data.get(key).cloned()), gas_info)
     }
@@ -43,7 +43,7 @@ impl Storage for MockStorage {
         start: Option<&[u8]>,
         end: Option<&[u8]>,
         order: Order,
-    ) -> FfiResult<Box<dyn Iterator<Item = FfiResult<KV>> + 'a>> {
+    ) -> BackendResult<Box<dyn Iterator<Item = BackendResult<KV>> + 'a>> {
         let bounds = range_bounds(start, end);
 
         // BTreeMap.range panics if range is start > end.
@@ -57,19 +57,19 @@ impl Storage for MockStorage {
 
         let iter = self.data.range(bounds);
         Ok(match order {
-            Order::Ascending => Box::new(iter.map(clone_item).map(FfiResult::Ok)),
-            Order::Descending => Box::new(iter.rev().map(clone_item).map(FfiResult::Ok)),
+            Order::Ascending => Box::new(iter.map(clone_item).map(BackendResult::Ok)),
+            Order::Descending => Box::new(iter.rev().map(clone_item).map(BackendResult::Ok)),
         })
     }
 
-    fn set(&mut self, key: &[u8], value: &[u8]) -> FfiResult<()> {
+    fn set(&mut self, key: &[u8], value: &[u8]) -> BackendResult<()> {
         self.data.insert(key.to_vec(), value.to_vec());
         let gas_info = cosmwasm_vm::GasInfo::with_externally_used((key.len() + value.len()) as u64);
         watcher::logger_storage_event_insert(key, value);
         (Ok(()), gas_info)
     }
 
-    fn remove(&mut self, key: &[u8]) -> FfiResult<()> {
+    fn remove(&mut self, key: &[u8]) -> BackendResult<()> {
         self.data.remove(key);
         let gas_info = cosmwasm_vm::GasInfo::with_externally_used(key.len() as u64);
         (Ok(()), gas_info)
@@ -95,18 +95,22 @@ impl Default for MockApi {
 }
 
 impl Api for MockApi {
-    fn canonical_address(&self, human: &HumanAddr) -> FfiResult<CanonicalAddr> {
+    fn canonical_address(&self, human: &HumanAddr) -> BackendResult<CanonicalAddr> {
         let gas_info = cosmwasm_vm::GasInfo::with_cost(GAS_COST_CANONICALIZE);
         // Dummy input validation. This is more sophisticated for formats like bech32, where format and checksum are validated.
         if human.len() < 3 {
             return (
-                Err(FfiError::unknown("Invalid input: human address too short")),
+                Err(BackendError::unknown(
+                    "Invalid input: human address too short",
+                )),
                 gas_info,
             );
         }
         if human.len() > self.canonical_length {
             return (
-                Err(FfiError::unknown("Invalid input: human address too long")),
+                Err(BackendError::unknown(
+                    "Invalid input: human address too long",
+                )),
                 gas_info,
             );
         }
@@ -119,12 +123,12 @@ impl Api for MockApi {
         (Ok(CanonicalAddr(Binary(out))), gas_info)
     }
 
-    fn human_address(&self, canonical: &CanonicalAddr) -> FfiResult<HumanAddr> {
+    fn human_address(&self, canonical: &CanonicalAddr) -> BackendResult<HumanAddr> {
         let gas_info = cosmwasm_vm::GasInfo::with_cost(GAS_COST_HUMANIZE);
 
         if canonical.len() != self.canonical_length {
             return (
-                Err(FfiError::unknown(
+                Err(BackendError::unknown(
                     "Invalid input: canonical address length not correct",
                 )),
                 gas_info,
@@ -219,7 +223,7 @@ pub fn new_mock(
     canonical_length: usize,
     contract_balance: &[Coin],
     contract_addr: &str,
-) -> Extern<MockStorage, MockApi, MockQuerier<SpecialQuery>> {
+) -> Backend<MockApi, MockStorage, MockQuerier<SpecialQuery>> {
     let human_addr = HumanAddr::from(contract_addr);
     // update custom_querier
     let mut custom_querier: MockQuerier<SpecialQuery> =
@@ -228,9 +232,9 @@ pub fn new_mock(
         custom_querier.with_custom_handler(|query| -> MockQuerierCustomHandlerResult {
             custom_query_execute(&query)
         });
-    Extern {
-        storage: MockStorage::default(),
+    Backend {
         api: MockApi::new(canonical_length),
+        storage: MockStorage::default(),
         querier: custom_querier,
     }
 }
