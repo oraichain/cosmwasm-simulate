@@ -12,7 +12,7 @@ lazy_mut! {
     static mut R_L_EDITOR: rustyline::Editor<()> = rustyline::Editor::new();
 }
 
-fn input_with_out_handle(input_data: &mut String) -> bool {
+fn input_with_out_handle(input_data: &mut String) {
     unsafe {
         let readline = R_L_EDITOR.readline(">> ");
 
@@ -31,7 +31,6 @@ fn input_with_out_handle(input_data: &mut String) -> bool {
 
             Err(error) => {
                 println!("error: {}", error);
-                return false;
             }
         }
     }

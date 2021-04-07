@@ -103,7 +103,7 @@ impl ContractInstance {
                 height: 0,
                 time: 0,
                 time_nanos: 0,
-                chain_id: "okchain".to_string(),
+                chain_id: "Oraichain".to_string(),
             },
             contract: Default::default(),
         };
@@ -142,33 +142,43 @@ impl ContractInstance {
         println!("executing func [{}] , params is {}", func_type, param);
         let gas_init = self.instance.get_gas_left();
         if func_type == "init" {
-            let init_result: cosmwasm_std::InitResponse<cosmwasm_std::CosmosMsg> =
-                cosmwasm_vm::call_init(
-                    &mut self.instance,
-                    &self.env,
-                    &self.message,
-                    param.as_bytes(),
-                )
-                .unwrap()
-                .unwrap();
+            let init_result = cosmwasm_vm::call_init(
+                &mut self.instance,
+                &self.env,
+                &self.message,
+                param.as_bytes(),
+            );
 
-            for msg in &init_result.attributes {
-                ContractInstance::dump_result(&msg.key, msg.value.as_bytes());
-            }
+            match init_result {
+                Result::Ok(result) => match result {
+                    ContractResult::Ok(val) => {
+                        for msg in &init_result.attributes {
+                            ContractInstance::dump_result(&msg.key, msg.value.as_bytes());
+                        }
+                    }
+                    ContractResult::Err(err) => println!("Contract Error: {}", err.to_string()),
+                },
+                Result::Err(err) => println!("Error: {}", err.to_string()),
+            };
         } else if func_type == "handle" {
-            let handle_result: cosmwasm_std::HandleResponse<cosmwasm_std::CosmosMsg> =
-                cosmwasm_vm::call_handle(
-                    &mut self.instance,
-                    &self.env,
-                    &self.message,
-                    param.as_bytes(),
-                )
-                .unwrap()
-                .unwrap();
+            let handle_result = cosmwasm_vm::call_handle(
+                &mut self.instance,
+                &self.env,
+                &self.message,
+                param.as_bytes(),
+            );
 
-            for msg in &handle_result.attributes {
-                ContractInstance::dump_result(&msg.key, msg.value.as_bytes());
-            }
+            match handle_result {
+                Result::Ok(result) => match result {
+                    ContractResult::Ok(val) => {
+                        for msg in &handle_result.attributes {
+                            ContractInstance::dump_result(&msg.key, msg.value.as_bytes());
+                        }
+                    }
+                    ContractResult::Err(err) => println!("Contract Error: {}", err.to_string()),
+                },
+                Result::Err(err) => println!("Error: {}", err.to_string()),
+            };
         } else if func_type == "query" {
             // check param if it is custom, we will try to check for oracle special query to implement, otherwise forward
             // to virtual machine
