@@ -152,7 +152,7 @@ impl ContractInstance {
             match init_result {
                 Result::Ok(result) => match result {
                     ContractResult::Ok(val) => {
-                        for msg in &init_result.attributes {
+                        for msg in &val.attributes {
                             ContractInstance::dump_result(&msg.key, msg.value.as_bytes());
                         }
                     }
@@ -171,7 +171,7 @@ impl ContractInstance {
             match handle_result {
                 Result::Ok(result) => match result {
                     ContractResult::Ok(val) => {
-                        for msg in &handle_result.attributes {
+                        for msg in &val.attributes {
                             ContractInstance::dump_result(&msg.key, msg.value.as_bytes());
                         }
                     }

@@ -34,8 +34,6 @@ fn input_with_out_handle(input_data: &mut String) {
             }
         }
     }
-
-    return true;
 }
 
 fn show_message_type(
