@@ -1,7 +1,6 @@
 extern crate base64;
 
 use crate::contract_vm::watcher;
-use std::collections::HashMap;
 
 use cosmwasm_std::testing::MockQuerierCustomHandlerResult;
 use cosmwasm_std::{
@@ -10,7 +9,7 @@ use cosmwasm_std::{
 use cosmwasm_vm::testing::MockQuerier;
 use cosmwasm_vm::{Api, Backend, BackendError, BackendResult, Storage};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, str::FromStr};
 #[cfg(feature = "iterator")]
 use std::{
     iter,
@@ -163,7 +162,7 @@ pub enum SpecialQuery {
         url: String,
         method: Option<String>,
         body: Option<String>,
-        headers: Option<HashMap<String, String>>,
+        headers: Option<Vec<String>>,
     },
 }
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -175,19 +174,20 @@ fn fetch(
     url: &String,
     method: &Option<String>,
     body: &Option<String>,
-    headers: &Option<HashMap<String, String>>,
+    headers: &Option<Vec<String>>,
 ) -> MockQuerierCustomHandlerResult {
     let mut req = match method {
         Some(v) => ureq::request(v, url),
         None => ureq::get(url),
     };
 
-    println!("Header : {:?}", headers.as_ref());
-
     // borrow ref
     if headers.is_some() {
-        for (key, value) in headers.as_ref().unwrap() {
-            req = req.set(&key, &value);
+        for line in headers.as_ref().unwrap() {
+            // if can parse Header
+            if let Ok(header) = ureq::Header::from_str(line) {
+                req = req.set(header.name(), header.value());
+            }
         }
     }
 
