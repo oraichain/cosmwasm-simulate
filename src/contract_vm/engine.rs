@@ -142,12 +142,13 @@ impl ContractInstance {
         println!("executing func [{}] , params is {}", func_type, param);
         let gas_init = self.instance.get_gas_left();
         if func_type == "init" {
-            let init_result = cosmwasm_vm::call_init(
-                &mut self.instance,
-                &self.env,
-                &self.message,
-                param.as_bytes(),
-            );
+            let init_result: cosmwasm_std::InitResponse<cosmwasm_std::CosmosMsg> =
+                cosmwasm_vm::call_init(
+                    &mut self.instance,
+                    &self.env,
+                    &self.message,
+                    param.as_bytes(),
+                );
 
             match init_result {
                 Result::Ok(result) => match result {
@@ -161,12 +162,13 @@ impl ContractInstance {
                 Result::Err(err) => println!("Error: {}", err.to_string()),
             };
         } else if func_type == "handle" {
-            let handle_result = cosmwasm_vm::call_handle(
-                &mut self.instance,
-                &self.env,
-                &self.message,
-                param.as_bytes(),
-            );
+            let handle_result: cosmwasm_std::HandleResponse<cosmwasm_std::CosmosMsg> =
+                cosmwasm_vm::call_handle(
+                    &mut self.instance,
+                    &self.env,
+                    &self.message,
+                    param.as_bytes(),
+                );
 
             match handle_result {
                 Result::Ok(result) => match result {
