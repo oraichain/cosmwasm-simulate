@@ -1,6 +1,7 @@
 extern crate base64;
 
 use crate::contract_vm::watcher;
+use std::collections::HashMap;
 
 use cosmwasm_std::testing::MockQuerierCustomHandlerResult;
 use cosmwasm_std::{
@@ -162,7 +163,7 @@ pub enum SpecialQuery {
         url: String,
         method: Option<String>,
         body: Option<String>,
-        authorization: Option<String>,
+        headers: Option<HashMap<String, String>>,
     },
 }
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -174,16 +175,20 @@ fn fetch(
     url: &String,
     method: &Option<String>,
     body: &Option<String>,
-    authorization: &Option<String>,
+    headers: &Option<HashMap<String, String>>,
 ) -> MockQuerierCustomHandlerResult {
     let mut req = match method {
         Some(v) => ureq::request(v, url),
         None => ureq::get(url),
     };
 
+    println!("Header : {:?}", headers.as_ref());
+
     // borrow ref
-    if authorization.is_some() {
-        req = req.set("Authorization", authorization.as_ref().unwrap());
+    if headers.is_some() {
+        for (key, value) in headers.as_ref().unwrap() {
+            req = req.set(&key, &value);
+        }
     }
 
     let resp = match body {
@@ -214,8 +219,8 @@ pub fn custom_query_execute(query: &SpecialQuery) -> MockQuerierCustomHandlerRes
             url,
             method,
             body,
-            authorization,
-        } => fetch(url, method, body, authorization),
+            headers,
+        } => fetch(url, method, body, headers),
     }
 }
 

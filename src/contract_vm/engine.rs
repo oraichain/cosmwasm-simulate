@@ -174,13 +174,16 @@ impl ContractInstance {
             // to virtual machine
             println!("params : {}", param);
             let query_result =
-                cosmwasm_vm::call_query(&mut self.instance, &self.env, param.as_bytes()).unwrap();
+                cosmwasm_vm::call_query(&mut self.instance, &self.env, param.as_bytes());
 
             match query_result {
-                ContractResult::Ok(val) => {
-                    ContractInstance::dump_result("query data", val.as_slice());
-                }
-                ContractResult::Err(err) => println!("Error: {}", err.to_string()),
+                Result::Ok(result) => match result {
+                    ContractResult::Ok(val) => {
+                        ContractInstance::dump_result("query data", val.as_slice());
+                    }
+                    ContractResult::Err(err) => println!("Contract Error: {}", err.to_string()),
+                },
+                Result::Err(err) => println!("Error: {}", err.to_string()),
             };
         } else {
             println!("wrong dispatcher call {}", func_type);
