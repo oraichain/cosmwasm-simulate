@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 
+pub const INDENT: &str = "    ";
+
 //Todo: analyze more detail from json schema file
 pub struct StructType {
     pub member_name: String,
@@ -19,6 +21,7 @@ pub struct Analyzer {
     pub map_of_basetype: HashMap<String, String>,
     pub map_of_struct: HashMap<String, HashMap<String, String>>,
     pub map_of_member: HashMap<String, HashMap<String, Vec<Member>>>,
+    pub map_of_enum: HashMap<String, bool>,
 }
 
 impl Analyzer {
@@ -27,6 +30,7 @@ impl Analyzer {
             map_of_basetype: HashMap::new(),
             map_of_struct: HashMap::new(),
             map_of_member: HashMap::new(),
+            map_of_enum: HashMap::new(),
         };
     }
 
@@ -37,9 +41,10 @@ impl Analyzer {
         mapper: &mut HashMap<String, Vec<Member>>,
     ) -> bool {
         let req_arr = match required.as_array() {
-            None => return false,
-            Some(arr) => arr,
+            None => vec![],
+            Some(arr) => arr.to_vec(),
         };
+
         mapper.insert(mem_name.clone(), Vec::new());
         let vec_mem = match mapper.get_mut(mem_name) {
             None => return false,
@@ -70,6 +75,8 @@ impl Analyzer {
                 member_name: req_str.to_string(),
                 member_def: "".to_string(),
             };
+
+            // not support input array of Definition, it is difficult to process
             if name == "array" {
                 let item = match proper.get("items") {
                     None => continue,
@@ -88,7 +95,7 @@ impl Analyzer {
                     Some(idx) => idx,
                 };
                 let (_, short_name) = item.split_at(seg + 1);
-                member.member_def = short_name.to_string();
+                member.member_def = format!("[{}]", short_name);
             } else if name.starts_with("#/definitions") {
                 //struct
                 let seg = match name.rfind('/') {
@@ -107,30 +114,46 @@ impl Analyzer {
     }
 
     pub fn dump_all_definitions(&self) {
-        println!("Base Type :");
-        for b in &self.map_of_basetype {
-            println!("{} => {}", b.0, b.1);
-        }
-        println!("Struct Type :");
-        for s in &self.map_of_struct {
-            println!("{} {{", s.0);
-            for member in s.1 {
-                println!("\t{} : {}", member.0, member.1);
+        if self.map_of_basetype.len() > 0 {
+            println!("Base Type :");
+            for b in &self.map_of_basetype {
+                println!("{} => {}", b.0, b.1);
             }
-            println!("}}");
+        }
+        if self.map_of_struct.len() > 0 {
+            println!("Struct Type :");
+            for s in &self.map_of_struct {
+                println!("{} {{", s.0);
+                for member in s.1 {
+                    println!("{}{} : {}", INDENT, member.0, member.1);
+                }
+                println!("}}");
+            }
         }
     }
 
     pub fn dump_all_members(&self) {
         for b in &self.map_of_member {
-            println!("{} {{", b.0);
+            let is_enum = self.map_of_enum.get(b.0).unwrap_or(&false);
+            let mut tab = "";
+            if *is_enum {
+                println!("{} {{", b.0);
+                tab = INDENT;
+            }
             for vcm in b.1 {
-                println!("{} {{", vcm.0);
-                for vc in vcm.1 {
-                    println!("\t{} : {}", vc.member_name, vc.member_def);
+                if vcm.1.len() > 0 {
+                    println!("{}{} {{", tab, vcm.0);
+                    for vc in vcm.1 {
+                        println!("{}{}{} : {}", tab, INDENT, vc.member_name, vc.member_def);
+                    }
+                    println!("{}}}", tab);
+                } else {
+                    println!("{}{} {{ }}", tab, vcm.0);
                 }
             }
-            println!("}}")
+            if *is_enum {
+                println!("}}")
+            }
         }
     }
 
@@ -150,6 +173,7 @@ impl Analyzer {
                 None => continue,
                 Some(t) => t,
             };
+
             if type_def == "object" {
                 //struct
                 let prop = match d.1.get("properties") {
@@ -161,22 +185,31 @@ impl Analyzer {
                     None => continue,
                     Some(pm) => pm,
                 };
+
                 for p in prop_map {
                     let def = match p.1.get("$ref") {
-                        None => continue,
+                        None => p.1,
                         Some(s) => s,
                     };
-                    let def_str = match def.as_str() {
-                        None => continue,
-                        Some(s) => s,
-                    };
-                    let seg = match def_str.rfind('/') {
-                        None => 0,
-                        Some(idx) => idx,
-                    };
-                    let (_, short_name) = def_str.split_at(seg + 1);
 
-                    vec_struct.insert(p.0.to_string(), short_name.to_string());
+                    let type_str = match def.get("type") {
+                        None => def,
+                        Some(s) => s,
+                    };
+
+                    let def_str = match type_str.as_array() {
+                        None => type_str.as_str().unwrap_or_default(),
+                        Some(s) => s.first().unwrap().as_str().unwrap_or_default(),
+                    };
+
+                    // check if is definition type
+                    match def_str.rfind('/') {
+                        None => vec_struct.insert(p.0.to_string(), def_str.to_string()),
+                        Some(idx) => {
+                            let (_, short_name) = def_str.split_at(idx + 1);
+                            vec_struct.insert(p.0.to_string(), short_name.to_string())
+                        }
+                    };
                 }
                 struct_type.insert(d.0.to_string(), vec_struct.clone());
             } else {
@@ -236,6 +269,8 @@ impl Analyzer {
                     &mut current_member,
                 );
             } else if iter.0 == "anyOf" {
+                self.map_of_enum.insert(title_must_exist.to_string(), true);
+
                 let array: &Vec<serde_json::Value> = match iter.1.as_array() {
                     None => continue,
                     Some(a) => a,
@@ -246,6 +281,7 @@ impl Analyzer {
                         None => continue,
                         Some(r) => r,
                     };
+
                     let name = match requreid[0].as_str() {
                         None => continue,
                         Some(n) => n,
@@ -259,16 +295,18 @@ impl Analyzer {
                     };
 
                     let properties = match required.get("properties") {
-                        None => continue,
+                        None => required,
                         Some(pp) => pp,
                     };
+
                     let target_required = match required.as_object() {
                         None => continue,
                         Some(target) => match target.get("required") {
-                            None => continue,
+                            None => &serde_json::Value::Null,
                             Some(m) => m,
                         },
                     };
+
                     if name != "null" {
                         Analyzer::build_member(
                             target_required,

@@ -4,8 +4,8 @@ extern crate serde_json;
 use cosmwasm_std::{ContractResult, Uint128};
 use cosmwasm_vm::{Instance, InstanceOptions, Size};
 
-use cosmwasm_vm::testing::{MockApi,MockStorage,MockQuerier, mock_env};
 use crate::contract_vm::{analyzer, mock};
+use cosmwasm_vm::testing::{mock_env, MockApi, MockQuerier, MockStorage};
 
 use std::fmt::Write;
 use wasmer_middleware_common::metering;
@@ -16,8 +16,8 @@ use wasmer_runtime_core::{
 };
 use wasmer_singlepass_backend::ModuleCodeGenerator as SinglePassMCG;
 
-static DEFAULT_GAS_LIMIT: u64 = 500_000_000_000_000;
-static COMPILE_GAS_LIMIT: u64 = 10_000_000_000;
+const DEFAULT_GAS_LIMIT: u64 = 500_000_000_000_000;
+const COMPILE_GAS_LIMIT: u64 = 10_000_000_000;
 const DEFAULT_MEMORY_LIMIT: Size = Size::mebi(16);
 const DEFAULT_PRINT_DEBUG: bool = true;
 
@@ -32,7 +32,7 @@ pub struct ContractInstance {
 
 fn compiler() -> Box<dyn Compiler> {
     let c: StreamingCompiler<SinglePassMCG, _, _, _, _> = StreamingCompiler::new(move || {
-        let mut chain = MiddlewareChain::new();                
+        let mut chain = MiddlewareChain::new();
         chain.push(metering::Metering::new(COMPILE_GAS_LIMIT));
         chain
     });
@@ -72,11 +72,7 @@ impl ContractInstance {
 
     fn make_instance(
         md: Module,
-        inst: cosmwasm_vm::Instance<
-            MockApi,
-            MockStorage,
-            MockQuerier<mock::SpecialQuery>,
-        >,
+        inst: cosmwasm_vm::Instance<MockApi, MockStorage, MockQuerier<mock::SpecialQuery>>,
         file: String,
     ) -> ContractInstance {
         return ContractInstance {
@@ -134,12 +130,13 @@ impl ContractInstance {
         println!("executing func [{}] , params is {}", func_type, param);
         let gas_init = self.instance.get_gas_left();
         if func_type == "init" {
-            let result= cosmwasm_vm::call_init::<_, _, _, cosmwasm_std::Empty>(
-                    &mut self.instance,
-                    &self.env,
-                    &self.message,
-                    param.as_bytes(),
-                ).unwrap();                                            
+            let result = cosmwasm_vm::call_init::<_, _, _, cosmwasm_std::Empty>(
+                &mut self.instance,
+                &self.env,
+                &self.message,
+                param.as_bytes(),
+            )
+            .unwrap();
 
             match result {
                 ContractResult::Ok(val) => {
@@ -149,13 +146,14 @@ impl ContractInstance {
                 }
                 ContractResult::Err(err) => println!("Contract Error: {}", err.to_string()),
             }
-        } else if func_type == "handle" {            
+        } else if func_type == "handle" {
             let result = cosmwasm_vm::call_handle::<_, _, _, cosmwasm_std::Empty>(
-                    &mut self.instance,
-                    &self.env,
-                    &self.message,
-                    param.as_bytes(),
-                ).unwrap();
+                &mut self.instance,
+                &self.env,
+                &self.message,
+                param.as_bytes(),
+            )
+            .unwrap();
 
             // println!("{:#?}", handle_result.unwrap());
             match result {
@@ -166,11 +164,11 @@ impl ContractInstance {
                 }
                 ContractResult::Err(err) => println!("Contract Error: {}", err.to_string()),
             }
-
         } else if func_type == "query" {
             // check param if it is custom, we will try to check for oracle special query to implement, otherwise forward
-            // to virtual machine            
-            let result = cosmwasm_vm::call_query(&mut self.instance, &self.env, param.as_bytes()).unwrap();
+            // to virtual machine
+            let result =
+                cosmwasm_vm::call_query(&mut self.instance, &self.env, param.as_bytes()).unwrap();
 
             match result {
                 ContractResult::Ok(val) => {

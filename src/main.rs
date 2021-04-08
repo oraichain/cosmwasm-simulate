@@ -1,8 +1,10 @@
 extern crate clap;
 
 pub mod contract_vm;
+use crate::analyzer::INDENT;
 use crate::contract_vm::engine::ContractInstance;
 use clap::{App, Arg};
+use contract_vm::analyzer;
 use std::collections::HashMap;
 use std::ops::Add;
 
@@ -26,7 +28,7 @@ fn input_with_out_handle(input_data: &mut String) -> bool {
 
             // Ctrl + C to break
             Err(rustyline::error::ReadlineError::Interrupted) => {
-                std::process::exit(0);                
+                std::process::exit(0);
             }
 
             Err(error) => {
@@ -52,25 +54,25 @@ fn show_message_type(
         {
             Some(h) => h,
             _ => {
-                println!("\t{} : {}", vcm.member_name, vcm.member_def);
+                println!("{}{} : {}", INDENT, vcm.member_name, vcm.member_def);
                 continue;
             }
         };
         //todo:need show all members by recursive invocation
-        println!("\t{} : {} :{{ ", vcm.member_name, vcm.member_def);
+        println!("{}{} : {} {{ ", INDENT, vcm.member_name, vcm.member_def);
         for members in st.1 {
-            println!("\t\t{} : {}", members.0, members.1);
+            println!("{}{} : {}", INDENT.repeat(2), members.0, members.1);
         }
-        println!("\t}}")
+        println!("{}}}", INDENT);
     }
     println!("}}");
 }
 
 fn check_is_need_flag(name: &str) -> bool {
-    if name == "integer" {
-        return false;
+    if name == "string" {
+        return true;
     }
-    return true;
+    return false;
 }
 
 fn to_json_item(name: &String, data: &String, type_name: &str) -> String {
@@ -103,20 +105,29 @@ fn input_type(
         }
     };
     //todo:need show all members by recursive invocation
+
     let mut params = "\"".to_string();
     params += mem_name;
-    params += "\":[{";
-    for members in st.1 {
-        println!("input \t[{} : {}]:", members.0, members.1);
-        let mut single: String = String::new();
-        input_with_out_handle(&mut single);
-        params += to_json_item(&members.0, &single, type_name).as_str();
-    }
-    let (resv, _) = params.split_at(params.len() - 1);
-    let mut ret = resv.to_string();
-    ret += "}],";
+    params += "\":";
 
-    return ret;
+    if st.1.len() == 0 {
+        input_with_out_handle(&mut params);
+    } else {
+        params += "{";
+        for members in st.1 {
+            println!("input {}[{} : {}]:", INDENT, members.0, members.1);
+            let mut single: String = String::new();
+            input_with_out_handle(&mut single);
+            params += to_json_item(&members.0, &single, members.1).as_str();
+        }
+        let (resv, _) = params.split_at(params.len() - 1);
+        params = resv.to_string();
+        params += "}";
+    }
+
+    params += ",";
+
+    return params;
 }
 
 fn input_message(
@@ -126,6 +137,7 @@ fn input_message(
     is_enum: &bool,
 ) -> String {
     let mut final_msg: String = "{".to_string();
+
     if *is_enum {
         final_msg = final_msg.add("\"");
         final_msg = final_msg.add(name);
@@ -141,23 +153,22 @@ fn input_message(
         final_msg = resv.to_string();
         final_msg = final_msg.add("}");
     } else {
-        final_msg = "}".to_string();
-    }
-    if *is_enum {
         final_msg = final_msg.add("}");
     }
 
-    println!("JsonMsg:{}", final_msg);
+    if *is_enum {
+        final_msg = final_msg.add("}");
+    }
     return final_msg;
 }
 
 fn simulate_by_auto_analyze(engine: &mut ContractInstance) {
     engine.analyzer.dump_all_members();
+    engine.analyzer.dump_all_definitions();
     loop {
-        let mut is_enum = false;
         let mut call_type = String::new();
         let mut call_param = String::new();
-        println!("Input call type(init | handle | query):");
+        println!("Input call type (init | handle | query):");
         input_with_out_handle(&mut call_type);
         if call_type.ne("init") && call_type.ne("handle") && call_type.ne("query") {
             println!(
@@ -187,8 +198,16 @@ fn simulate_by_auto_analyze(engine: &mut ContractInstance) {
                 print!("{}", k);
             }
             print!(" ]\n");
+
             input_with_out_handle(&mut call_param);
         }
+
+        // if there is anyOf, it is enum
+        let is_enum = engine
+            .analyzer
+            .map_of_enum
+            .get(&call_param)
+            .unwrap_or(&false);
 
         let msg_type: &HashMap<String, Vec<contract_vm::analyzer::Member>> =
             match engine.analyzer.map_of_member.get(call_param.as_str()) {
@@ -200,7 +219,6 @@ fn simulate_by_auto_analyze(engine: &mut ContractInstance) {
             };
         let len = msg_type.len();
         if len > 0 {
-            is_enum = true;
             //only one msg
             if msg_type.len() == 1 {
                 call_param = msg_type.keys().next().unwrap().to_string();
@@ -231,9 +249,12 @@ fn simulate_by_auto_analyze(engine: &mut ContractInstance) {
             }
             Some(v) => v,
         };
+
         show_message_type(call_param.as_str(), msg, &engine);
 
         let json_msg = input_message(call_param.as_str(), msg, &engine, &is_enum);
+
+        println!("call {} - {}", call_type, json_msg);
 
         let result = engine.call(call_type, json_msg);
         println!("Call return msg [{}]", result);
@@ -244,7 +265,7 @@ fn simulate_by_json(engine: &mut ContractInstance) {
     loop {
         let mut call_type = String::new();
         let mut json_msg = String::new();
-        println!("Input call type(init | handle | query):");
+        println!("Input call type (init | handle | query):");
         input_with_out_handle(&mut call_type);
         if call_type.ne("init") && call_type.ne("handle") && call_type.ne("query") {
             println!(
