@@ -2,9 +2,9 @@ extern crate cosmwasm_std;
 extern crate cosmwasm_vm;
 extern crate serde_json;
 use cosmwasm_std::{ContractResult, Uint128};
-use cosmwasm_vm::testing::MockQuerier;
 use cosmwasm_vm::{Instance, InstanceOptions, Size};
 
+use cosmwasm_vm::testing::{MockApi,MockStorage,MockQuerier, mock_env};
 use crate::contract_vm::{analyzer, mock};
 
 use std::fmt::Write;
@@ -23,7 +23,7 @@ const DEFAULT_PRINT_DEBUG: bool = true;
 
 pub struct ContractInstance {
     pub module: Module,
-    pub instance: Instance<mock::MockApi, mock::MockStorage, MockQuerier<mock::SpecialQuery>>,
+    pub instance: Instance<MockApi, MockStorage, MockQuerier<mock::SpecialQuery>>,
     pub wasm_file: String,
     pub env: cosmwasm_std::Env,
     pub message: cosmwasm_std::MessageInfo,
@@ -32,9 +32,7 @@ pub struct ContractInstance {
 
 fn compiler() -> Box<dyn Compiler> {
     let c: StreamingCompiler<SinglePassMCG, _, _, _, _> = StreamingCompiler::new(move || {
-        let mut chain = MiddlewareChain::new();
-        //compile without opCode check
-        //chain.push(DeterministicMiddleware::new());
+        let mut chain = MiddlewareChain::new();                
         chain.push(metering::Metering::new(COMPILE_GAS_LIMIT));
         chain
     });
@@ -43,7 +41,7 @@ fn compiler() -> Box<dyn Compiler> {
 
 impl ContractInstance {
     pub fn new_instance(wasm_file: &str) -> Result<Self, String> {
-        let deps = mock::new_mock(20, &[], "fake_contract_addr");
+        let deps = mock::new_mock(&[], "fake_contract_addr");
         let wasm = match analyzer::load_data_from_file(wasm_file) {
             Err(e) => return Err(e),
             Ok(code) => code,
@@ -75,8 +73,8 @@ impl ContractInstance {
     fn make_instance(
         md: Module,
         inst: cosmwasm_vm::Instance<
-            mock::MockApi,
-            mock::MockStorage,
+            MockApi,
+            MockStorage,
             MockQuerier<mock::SpecialQuery>,
         >,
         file: String,
@@ -98,15 +96,9 @@ impl ContractInstance {
     }
 
     fn build_mock_env() -> cosmwasm_std::Env {
-        return cosmwasm_std::Env {
-            block: cosmwasm_std::BlockInfo {
-                height: 0,
-                time: 0,
-                time_nanos: 0,
-                chain_id: "Oraichain".to_string(),
-            },
-            contract: Default::default(),
-        };
+        let mut env = mock_env();
+        env.block.chain_id = "Oraichain".to_string();
+        env
     }
 
     pub fn show_module_info(&self) {
@@ -142,61 +134,50 @@ impl ContractInstance {
         println!("executing func [{}] , params is {}", func_type, param);
         let gas_init = self.instance.get_gas_left();
         if func_type == "init" {
-            let init_result: cosmwasm_std::InitResponse<cosmwasm_std::CosmosMsg> =
-                cosmwasm_vm::call_init(
+            let result= cosmwasm_vm::call_init::<_, _, _, cosmwasm_std::Empty>(
                     &mut self.instance,
                     &self.env,
                     &self.message,
                     param.as_bytes(),
-                );
+                ).unwrap();                                            
 
-            match init_result {
-                Result::Ok(result) => match result {
-                    ContractResult::Ok(val) => {
-                        for msg in &val.attributes {
-                            ContractInstance::dump_result(&msg.key, msg.value.as_bytes());
-                        }
+            match result {
+                ContractResult::Ok(val) => {
+                    for msg in &val.attributes {
+                        ContractInstance::dump_result(&msg.key, msg.value.as_bytes());
                     }
-                    ContractResult::Err(err) => println!("Contract Error: {}", err.to_string()),
-                },
-                Result::Err(err) => println!("Error: {}", err.to_string()),
-            };
-        } else if func_type == "handle" {
-            let handle_result: cosmwasm_std::HandleResponse<cosmwasm_std::CosmosMsg> =
-                cosmwasm_vm::call_handle(
+                }
+                ContractResult::Err(err) => println!("Contract Error: {}", err.to_string()),
+            }
+        } else if func_type == "handle" {            
+            let result = cosmwasm_vm::call_handle::<_, _, _, cosmwasm_std::Empty>(
                     &mut self.instance,
                     &self.env,
                     &self.message,
                     param.as_bytes(),
-                );
+                ).unwrap();
 
-            match handle_result {
-                Result::Ok(result) => match result {
-                    ContractResult::Ok(val) => {
-                        for msg in &val.attributes {
-                            ContractInstance::dump_result(&msg.key, msg.value.as_bytes());
-                        }
+            // println!("{:#?}", handle_result.unwrap());
+            match result {
+                ContractResult::Ok(val) => {
+                    for msg in &val.attributes {
+                        ContractInstance::dump_result(&msg.key, msg.value.as_bytes());
                     }
-                    ContractResult::Err(err) => println!("Contract Error: {}", err.to_string()),
-                },
-                Result::Err(err) => println!("Error: {}", err.to_string()),
-            };
+                }
+                ContractResult::Err(err) => println!("Contract Error: {}", err.to_string()),
+            }
+
         } else if func_type == "query" {
             // check param if it is custom, we will try to check for oracle special query to implement, otherwise forward
-            // to virtual machine
-            println!("params : {}", param);
-            let query_result =
-                cosmwasm_vm::call_query(&mut self.instance, &self.env, param.as_bytes());
+            // to virtual machine            
+            let result = cosmwasm_vm::call_query(&mut self.instance, &self.env, param.as_bytes()).unwrap();
 
-            match query_result {
-                Result::Ok(result) => match result {
-                    ContractResult::Ok(val) => {
-                        ContractInstance::dump_result("query data", val.as_slice());
-                    }
-                    ContractResult::Err(err) => println!("Contract Error: {}", err.to_string()),
-                },
-                Result::Err(err) => println!("Error: {}", err.to_string()),
-            };
+            match result {
+                ContractResult::Ok(val) => {
+                    ContractInstance::dump_result("query data", val.as_slice());
+                }
+                ContractResult::Err(err) => println!("Contract Error: {}", err.to_string()),
+            }
         } else {
             println!("wrong dispatcher call {}", func_type);
         }
