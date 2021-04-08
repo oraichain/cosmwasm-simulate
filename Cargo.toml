@@ -7,6 +7,13 @@ version = "0.13.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
 
+[profile.release]
+codegen-units = 1 
+lto = true 
+opt-level = 'z' # Optimize for size.
+panic = 'abort' 
+# upx --best --lzma target/release/cosmwasm-simulate
+
 [dependencies]
 base64 = "0.13.0"
 clap = "~2.32"

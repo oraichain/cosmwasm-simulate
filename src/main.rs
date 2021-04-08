@@ -26,12 +26,12 @@ fn input_with_out_handle(input_data: &mut String) -> bool {
 
             // Ctrl + C to break
             Err(rustyline::error::ReadlineError::Interrupted) => {
-                std::process::exit(0);
-                return false;
+                std::process::exit(0);                
             }
 
             Err(error) => {
                 println!("error: {}", error);
+                return false;
             }
         }
     }
