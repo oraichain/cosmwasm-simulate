@@ -123,11 +123,11 @@ impl Analyzer {
         if self.map_of_struct.len() > 0 {
             println!("Struct Type :");
             for s in &self.map_of_struct {
-                println!("{} {{", s.0);
+                println!("{}{} {{", INDENT, s.0);
                 for member in s.1 {
-                    println!("{}{} : {}", INDENT, member.0, member.1);
+                    println!("{}{} : {}", INDENT.repeat(2), member.0, member.1);
                 }
-                println!("}}");
+                println!("{}}}", INDENT);
             }
         }
     }
