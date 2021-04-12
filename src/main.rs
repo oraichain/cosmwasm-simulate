@@ -68,7 +68,7 @@ fn show_message_type(
     println!("}}");
 }
 
-fn check_is_need_flag(name: &str) -> bool {
+fn check_is_need_slash(name: &str) -> bool {
     if name == "string" {
         return true;
     }
@@ -79,13 +79,15 @@ fn to_json_item(name: &String, data: &String, type_name: &str) -> String {
     let mut params = "\"".to_string();
     params += name.as_str();
     params += "\":";
-    if check_is_need_flag(type_name) {
+    if check_is_need_slash(type_name) {
         params += "\"";
-    }
-    params += data.as_str();
-    if check_is_need_flag(type_name) {
+        // clear enter and add slash to double quote
+        params += data.replace('\n', "").replace('"', "\\\"").as_str();
         params += "\"";
+    } else {
+        params += data.as_str();
     }
+
     params += ",";
     return params;
 }

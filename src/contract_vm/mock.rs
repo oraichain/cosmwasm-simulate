@@ -1,11 +1,9 @@
 extern crate base64;
 
 use cosmwasm_std::testing::MockQuerierCustomHandlerResult;
-use cosmwasm_std::{
-    to_binary, Binary, Coin, CustomQuery, HumanAddr, SystemError, SystemResult,
-};
-use cosmwasm_vm::testing::{MockStorage,MockApi,MockQuerier};
-use cosmwasm_vm::{ Backend};
+use cosmwasm_std::{to_binary, Binary, Coin, CustomQuery, HumanAddr, SystemError, SystemResult};
+use cosmwasm_vm::testing::{MockApi, MockQuerier, MockStorage};
+use cosmwasm_vm::Backend;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
@@ -79,7 +77,7 @@ pub fn custom_query_execute(query: &SpecialQuery) -> MockQuerierCustomHandlerRes
     }
 }
 
-pub fn new_mock(    
+pub fn new_mock(
     contract_balance: &[Coin],
     contract_addr: &str,
 ) -> Backend<MockApi, MockStorage, MockQuerier<SpecialQuery>> {
