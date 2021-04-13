@@ -46,6 +46,7 @@ impl Analyzer {
         };
 
         mapper.insert(mem_name.clone(), Vec::new());
+
         let vec_mem = match mapper.get_mut(mem_name) {
             None => return false,
             Some(vecm) => vecm,
@@ -81,7 +82,14 @@ impl Analyzer {
                 let item = match proper.get("items") {
                     None => continue,
                     Some(it) => match it.get("$ref") {
-                        None => continue,
+                        // get type directly
+                        None => match it.get("type") {
+                            None => continue,
+                            Some(t) => match t.as_str() {
+                                None => continue,
+                                Some(s) => s,
+                            },
+                        },
                         Some(rf) => match rf.as_str() {
                             None => continue,
                             Some(s) => s,
@@ -89,21 +97,25 @@ impl Analyzer {
                     },
                 };
 
-                //struct
-                let seg = match item.rfind('/') {
-                    None => 0,
-                    Some(idx) => idx,
+                // struct
+                let name = match item.rfind('/') {
+                    None => item,
+                    Some(idx) => {
+                        let (_, short_name) = item.split_at(idx + 1);
+                        short_name
+                    }
                 };
-                let (_, short_name) = item.split_at(seg + 1);
-                member.member_def = format!("[{}]", short_name);
+                // array types
+                member.member_def = format!("[{}]", name);
             } else if name.starts_with("#/definitions") {
-                //struct
-                let seg = match name.rfind('/') {
-                    None => 0,
-                    Some(idx) => idx,
+                // struct
+                match name.rfind('/') {
+                    None => member.member_def = name.to_string(),
+                    Some(idx) => {
+                        let (_, short_name) = name.split_at(idx + 1);
+                        member.member_def = short_name.to_string();
+                    }
                 };
-                let (_, short_name) = name.split_at(seg + 1);
-                member.member_def = short_name.to_string();
             } else {
                 //base type
                 member.member_def = name.to_string();
