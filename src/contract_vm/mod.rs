@@ -1,6 +1,7 @@
 use crate::contract_vm::engine::ContractInstance;
 
 pub mod analyzer;
+pub mod editor;
 pub mod engine;
 pub mod mock;
 

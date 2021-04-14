@@ -2,6 +2,7 @@ extern crate clap;
 
 pub mod contract_vm;
 use crate::analyzer::INDENT;
+use crate::contract_vm::editor::TerminalEditor;
 use crate::contract_vm::engine::ContractInstance;
 use clap::{App, Arg};
 use contract_vm::analyzer;
@@ -11,33 +12,11 @@ use std::ops::Add;
 #[macro_use]
 extern crate lazy_mut;
 lazy_mut! {
-    static mut R_L_EDITOR: rustyline::Editor<()> = rustyline::Editor::new();
+    static mut EDITOR: TerminalEditor = TerminalEditor::new();
 }
 
-fn input_with_out_handle(input_data: &mut String) -> bool {
-    unsafe {
-        let readline = R_L_EDITOR.readline(">> ");
-
-        match readline {
-            Ok(line) => {
-                input_data.push_str(line.as_str());
-                if input_data.ends_with("\n") {
-                    input_data.remove(input_data.len() - 1);
-                }
-            }
-
-            // Ctrl + C to break
-            Err(rustyline::error::ReadlineError::Interrupted) => {
-                std::process::exit(0);
-            }
-
-            Err(error) => {
-                println!("error: {}", error);
-                return false;
-            }
-        }
-    }
-    return true;
+fn input_with_out_handle(input_data: &mut String, store_input: bool) -> bool {
+    unsafe { EDITOR.readline(input_data, store_input) }
 }
 
 fn show_message_type(
@@ -102,7 +81,7 @@ fn input_type(
         Some(h) => h,
         _ => {
             let mut single: String = String::new();
-            input_with_out_handle(&mut single);
+            input_with_out_handle(&mut single, true);
             return to_json_item(&mem_name, &single, type_name);
         }
     };
@@ -113,13 +92,13 @@ fn input_type(
     params += "\":";
 
     if st.1.len() == 0 {
-        input_with_out_handle(&mut params);
+        input_with_out_handle(&mut params, true);
     } else {
         params += "{";
         for members in st.1 {
             println!("input {}[{} : {}]:", INDENT, members.0, members.1);
             let mut single: String = String::new();
-            input_with_out_handle(&mut single);
+            input_with_out_handle(&mut single, true);
             params += to_json_item(&members.0, &single, members.1).as_str();
         }
         let (resv, _) = params.split_at(params.len() - 1);
@@ -171,7 +150,14 @@ fn simulate_by_auto_analyze(engine: &mut ContractInstance) {
         let mut call_type = String::new();
         let mut call_param = String::new();
         println!("Input call type (init | handle | query):");
-        input_with_out_handle(&mut call_type);
+        unsafe {
+            EDITOR.update_history_entries(vec![
+                "init".to_string(),
+                "handle".to_string(),
+                "query".to_string(),
+            ]);
+        }
+        input_with_out_handle(&mut call_type, false);
         if call_type.ne("init") && call_type.ne("handle") && call_type.ne("query") {
             println!(
                 "Wrong call type[{}], must one of (init | handle | query)",
@@ -191,17 +177,22 @@ fn simulate_by_auto_analyze(engine: &mut ContractInstance) {
             call_param = "QueryMsg".to_string();
         } else {
             print!("Input Call param from [ ");
-            for k in engine.analyzer.map_of_member.keys() {
-                if first {
-                    first = false;
-                } else {
-                    print!(" | ")
+            unsafe {
+                EDITOR.clear_history();
+
+                for k in engine.analyzer.map_of_member.keys() {
+                    if first {
+                        first = false;
+                    } else {
+                        print!(" | ")
+                    }
+                    print!("{}", k);
+                    EDITOR.add_history_entry(k);
                 }
-                print!("{}", k);
             }
             print!(" ]\n");
 
-            input_with_out_handle(&mut call_param);
+            input_with_out_handle(&mut call_param, false);
         }
 
         // if there is anyOf, it is enum
@@ -227,17 +218,21 @@ fn simulate_by_auto_analyze(engine: &mut ContractInstance) {
             } else {
                 print!("Input Call param from [ ");
                 first = true;
-                for k in msg_type.keys() {
-                    if first {
-                        first = false;
-                    } else {
-                        print!(" | ")
+                unsafe {
+                    EDITOR.clear_history();
+                    for k in msg_type.keys() {
+                        if first {
+                            first = false;
+                        } else {
+                            print!(" | ")
+                        }
+                        print!("{}", k);
+                        EDITOR.add_history_entry(k);
                     }
-                    print!("{}", k);
                 }
                 print!(" ]\n");
                 call_param.clear();
-                input_with_out_handle(&mut call_param);
+                input_with_out_handle(&mut call_param, false);
             }
         }
 
@@ -254,6 +249,10 @@ fn simulate_by_auto_analyze(engine: &mut ContractInstance) {
 
         show_message_type(call_param.as_str(), msg, &engine);
 
+        // update previous history entries
+        unsafe {
+            EDITOR.update_input_history_entry();
+        }
         let json_msg = input_message(call_param.as_str(), msg, &engine, &is_enum);
 
         println!("call {} - {}", call_type, json_msg);
@@ -268,7 +267,14 @@ fn simulate_by_json(engine: &mut ContractInstance) {
         let mut call_type = String::new();
         let mut json_msg = String::new();
         println!("Input call type (init | handle | query):");
-        input_with_out_handle(&mut call_type);
+        unsafe {
+            EDITOR.update_history_entries(vec![
+                "init".to_string(),
+                "handle".to_string(),
+                "query".to_string(),
+            ]);
+        }
+        input_with_out_handle(&mut call_type, false);
         if call_type.ne("init") && call_type.ne("handle") && call_type.ne("query") {
             println!(
                 "Wrong call type[{}], must one of (init | handle | query)",
@@ -277,7 +283,12 @@ fn simulate_by_json(engine: &mut ContractInstance) {
             continue;
         }
         println!("Input json string:");
-        input_with_out_handle(&mut json_msg);
+
+        // update previous history entries
+        unsafe {
+            EDITOR.update_input_history_entry();
+        }
+        input_with_out_handle(&mut json_msg, true);
         let result = engine.call(call_type, json_msg);
         println!("Call return msg [{}]", result);
     }
@@ -307,7 +318,7 @@ fn prepare_command_line() -> bool {
         .about("A simulation of cosmwasm smart contract system")
         .arg(
             Arg::with_name("run")
-                .help("contract file that built by https://github.com/CosmWasm/rust-optimizer")
+                .help("contract file that built by https://github.com/oraichain/smart-studio")
                 .empty_values(false),
         )
         .get_matches();
