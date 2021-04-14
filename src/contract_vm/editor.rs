@@ -145,7 +145,6 @@ impl TerminalEditor {
                 if store_input {
                     self.add_input_history_entry(data.to_string());
                 }
-                self.rl.add_history_entry(data);
             }
 
             // Ctrl + C to break
