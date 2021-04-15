@@ -1,12 +1,12 @@
 use std::borrow::Cow::{self, Borrowed, Owned};
 
+use colored::*;
 use rustyline::completion::{Completer, FilenameCompleter, Pair};
-use rustyline::config::OutputStreamType;
 use rustyline::error::ReadlineError;
 use rustyline::highlight::{Highlighter, MatchingBracketHighlighter};
 use rustyline::hint::{Hinter, HistoryHinter};
 use rustyline::validate::{self, MatchingBracketValidator, Validator};
-use rustyline::{CompletionType, Config, Context, EditMode, Editor};
+use rustyline::{CompletionType, Config, Context, Editor};
 use rustyline_derive::Helper;
 
 #[derive(Helper)]
@@ -53,7 +53,7 @@ impl Highlighter for MyHelper {
     }
 
     fn highlight_hint<'h>(&self, hint: &'h str) -> Cow<'h, str> {
-        Owned("\x1b[1m\x1b[32m".to_owned() + hint + "\x1b[0m")
+        Owned(format!("{}", hint.green().bold()))
     }
 
     fn highlight<'l>(&self, line: &'l str, pos: usize) -> Cow<'l, str> {
@@ -88,9 +88,8 @@ impl TerminalEditor {
         let config = Config::builder()
             .history_ignore_space(true)
             .completion_type(CompletionType::List)
-            .edit_mode(EditMode::Emacs)
-            .output_stream(OutputStreamType::Stdout)
             .build();
+
         let h = MyHelper {
             completer: FilenameCompleter::new(),
             highlighter: MatchingBracketHighlighter::new(),
@@ -135,7 +134,7 @@ impl TerminalEditor {
 
     pub fn readline(&mut self, input_data: &mut String, store_input: bool) -> bool {
         let p = ">> ";
-        self.rl.helper_mut().expect("No helper").colored_prompt = format!("\x1b[1;32m{}\x1b[0m", p);
+        self.rl.helper_mut().expect("No helper").colored_prompt = format!("{}", p.green().bold());
         let readline = self.rl.readline(&p);
 
         match readline {

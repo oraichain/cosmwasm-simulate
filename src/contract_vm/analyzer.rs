@@ -1,10 +1,40 @@
 //analyzer for json schema file
 
+use colored::*;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 
 pub const INDENT: &str = "    ";
+
+fn get_member_name_from_definition(item: &str) -> &str {
+    match item.rfind('/') {
+        None => item,
+        Some(idx) => {
+            let (_, short_name) = item.split_at(idx + 1);
+            short_name
+        }
+    }
+}
+
+fn get_type_name_from_definition(item: &serde_json::Value) -> &serde_json::Value {
+    match item.get("type") {
+        None => {
+            // check if all of type
+            let item = match item.get("allOf") {
+                None => item,
+                Some(v) => v.as_array().unwrap().first().unwrap(),
+            };
+
+            match item.get("$ref") {
+                // default is Null
+                None => &serde_json::Value::Null,
+                Some(rf) => rf,
+            }
+        }
+        Some(t) => t,
+    }
+}
 
 //Todo: analyze more detail from json schema file
 pub struct StructType {
@@ -38,6 +68,7 @@ impl Analyzer {
         required: &serde_json::Value,
         properties: &serde_json::Value,
         mem_name: &String,
+        struct_type: &HashMap<String, HashMap<String, String>>,
         mapper: &mut HashMap<String, Vec<Member>>,
     ) -> bool {
         let req_arr = match required.as_array() {
@@ -52,92 +83,96 @@ impl Analyzer {
             Some(vecm) => vecm,
         };
 
-        for req in req_arr {
-            let req_str = match req.as_str() {
-                None => continue,
-                Some(s) => s,
-            };
-            let proper = match properties.get(req_str) {
-                None => continue,
-                Some(ps) => ps,
-            };
-            let type_name = match proper.get("type") {
-                None => match proper.get("$ref") {
-                    None => continue,
-                    Some(rf) => rf,
-                },
-                Some(s) => s,
-            };
-            let name = match type_name.as_str() {
-                None => continue,
-                Some(s) => s,
-            };
-            let mut member: Member = Member {
-                member_name: req_str.to_string(),
-                member_def: "".to_string(),
+        if req_arr.len() == 0 {
+            let type_name = match properties.get("$ref") {
+                None => return false,
+                Some(def_str) => get_member_name_from_definition(def_str.as_str().unwrap()),
             };
 
-            // not support input array of Definition, it is difficult to process
-            if name == "array" {
-                let item = match proper.get("items") {
+            match struct_type.get(type_name) {
+                None => return false,
+                Some(st) => {
+                    for members in st {
+                        let member: Member = Member {
+                            member_name: members.0.to_string(),
+                            member_def: members.1.to_string(),
+                        };
+                        vec_mem.insert(vec_mem.len(), member);
+                    }
+                }
+            };
+        } else {
+            for req in req_arr {
+                let req_str = match req.as_str() {
                     None => continue,
-                    Some(it) => match it.get("$ref") {
-                        // get type directly
-                        None => match it.get("type") {
-                            None => continue,
-                            Some(t) => match t.as_str() {
+                    Some(s) => s,
+                };
+                let proper = match properties.get(req_str) {
+                    None => continue,
+                    Some(ps) => ps,
+                };
+                let type_name = get_type_name_from_definition(proper);
+                let name = match type_name.as_str() {
+                    None => continue,
+                    Some(s) => s,
+                };
+                let mut member: Member = Member {
+                    member_name: req_str.to_string(),
+                    member_def: "".to_string(),
+                };
+
+                // not support input array of Definition, it is difficult to process
+                if name == "array" {
+                    let item = match proper.get("items") {
+                        None => continue,
+                        Some(it) => match it.get("$ref") {
+                            // get type directly
+                            None => match it.get("type") {
+                                None => continue,
+                                Some(t) => match t.as_str() {
+                                    None => continue,
+                                    Some(s) => s,
+                                },
+                            },
+                            Some(rf) => match rf.as_str() {
                                 None => continue,
                                 Some(s) => s,
                             },
                         },
-                        Some(rf) => match rf.as_str() {
-                            None => continue,
-                            Some(s) => s,
-                        },
-                    },
-                };
-
-                // struct
-                let name = match item.rfind('/') {
-                    None => item,
-                    Some(idx) => {
-                        let (_, short_name) = item.split_at(idx + 1);
-                        short_name
-                    }
-                };
-                // array types
-                member.member_def = format!("[{}]", name);
-            } else if name.starts_with("#/definitions") {
-                // struct
-                match name.rfind('/') {
-                    None => member.member_def = name.to_string(),
-                    Some(idx) => {
-                        let (_, short_name) = name.split_at(idx + 1);
-                        member.member_def = short_name.to_string();
-                    }
-                };
-            } else {
-                //base type
-                member.member_def = name.to_string();
+                    };
+                    // array types
+                    member.member_def = format!("[{}]", get_member_name_from_definition(item));
+                } else if name.starts_with("#/definitions") {
+                    // struct
+                    member.member_def = get_member_name_from_definition(name).to_string();
+                } else {
+                    //base type
+                    member.member_def = name.to_string();
+                }
+                vec_mem.insert(vec_mem.len(), member);
             }
-            vec_mem.insert(vec_mem.len(), member);
         }
         return true;
     }
 
     pub fn dump_all_definitions(&self) {
         if self.map_of_basetype.len() > 0 {
-            println!("Base Type :");
+            println!("{}", "Base Type :".green().bold());
             for b in &self.map_of_basetype {
-                println!("{} => {}", b.0, b.1);
+                println!("{}{} => {}", INDENT, b.0.blue().bold(), b.1.yellow());
             }
         }
         if self.map_of_struct.len() > 0 {
-            println!("Struct Type :");
+            println!("{}", "Struct Type :".green().bold());
             for s in &self.map_of_struct {
-                println!("{}{} {{", INDENT, s.0);
+                println!("{}{} {{", INDENT, s.0.blue().bold());
                 for member in s.1 {
-                    println!("{}{} : {}", INDENT.repeat(2), member.0, member.1);
+                    println!(
+                        "{}{} : {}",
+                        INDENT.repeat(2),
+                        member.0.blue().bold(),
+                        member.1.yellow()
+                    );
                 }
                 println!("{}}}", INDENT);
             }
@@ -149,18 +184,24 @@ impl Analyzer {
             let is_enum = self.map_of_enum.get(b.0).unwrap_or(&false);
             let mut tab = "";
             if *is_enum {
-                println!("{} {{", b.0);
+                println!("{} {{", b.0.blue().bold());
                 tab = INDENT;
             }
             for vcm in b.1 {
                 if vcm.1.len() > 0 {
-                    println!("{}{} {{", tab, vcm.0);
+                    println!("{}{} {{", tab, vcm.0.blue().bold());
                     for vc in vcm.1 {
-                        println!("{}{}{} : {}", tab, INDENT, vc.member_name, vc.member_def);
+                        println!(
+                            "{}{}{} : {}",
+                            tab,
+                            INDENT,
+                            vc.member_name.blue().bold(),
+                            vc.member_def.yellow()
+                        );
                     }
                     println!("{}}}", tab);
                 } else {
-                    println!("{}{} {{ }}", tab, vcm.0);
+                    println!("{}{} {{ }}", tab, vcm.0.blue().bold());
                 }
             }
             if *is_enum {
@@ -181,10 +222,7 @@ impl Analyzer {
         };
 
         for d in def_arr {
-            let type_def = match d.1.get("type") {
-                None => continue,
-                Some(t) => t,
-            };
+            let type_def = get_type_name_from_definition(d.1);
 
             if type_def == "object" {
                 //struct
@@ -199,15 +237,8 @@ impl Analyzer {
                 };
 
                 for p in prop_map {
-                    let def = match p.1.get("$ref") {
-                        None => p.1,
-                        Some(s) => s,
-                    };
-
-                    let type_str = match def.get("type") {
-                        None => def,
-                        Some(s) => s,
-                    };
+                    // recursive parse
+                    let type_str = get_type_name_from_definition(p.1);
 
                     let def_str = match type_str.as_array() {
                         None => type_str.as_str().unwrap_or_default(),
@@ -215,13 +246,8 @@ impl Analyzer {
                     };
 
                     // check if is definition type
-                    match def_str.rfind('/') {
-                        None => vec_struct.insert(p.0.to_string(), def_str.to_string()),
-                        Some(idx) => {
-                            let (_, short_name) = def_str.split_at(idx + 1);
-                            vec_struct.insert(p.0.to_string(), short_name.to_string())
-                        }
-                    };
+                    let short_name = get_member_name_from_definition(def_str);
+                    vec_struct.insert(p.0.to_string(), short_name.to_string());
                 }
                 struct_type.insert(d.0.to_string(), vec_struct.clone());
             } else {
@@ -261,6 +287,7 @@ impl Analyzer {
             None => return false,
             Some(c) => c,
         };
+        // prepare definitions before analyzing
         for iter in mapping.iter() {
             if iter.0 == "definitions" {
                 Analyzer::prepare_definitions(
@@ -268,7 +295,11 @@ impl Analyzer {
                     &mut self.map_of_basetype,
                     &mut self.map_of_struct,
                 );
-            } else if iter.0 == "required" {
+            }
+        }
+        // process other fields
+        for iter in mapping.iter() {
+            if iter.0 == "required" {
                 let properties = match mapping.get("properties") {
                     None => continue,
                     Some(p) => p,
@@ -278,6 +309,7 @@ impl Analyzer {
                     iter.1,
                     properties,
                     &title_must_exist.to_string(),
+                    &self.map_of_struct,
                     &mut current_member,
                 );
             } else if iter.0 == "anyOf" {
@@ -289,6 +321,7 @@ impl Analyzer {
                 };
                 for sub_item in array {
                     //TODO: need more security&border check
+
                     let requreid = match sub_item.get("required") {
                         None => continue,
                         Some(r) => r,
@@ -298,6 +331,7 @@ impl Analyzer {
                         None => continue,
                         Some(n) => n,
                     };
+
                     let required = match sub_item.get("properties") {
                         None => continue,
                         Some(p) => match p.get(name) {
@@ -324,6 +358,7 @@ impl Analyzer {
                             target_required,
                             properties,
                             &name.to_string(),
+                            &self.map_of_struct,
                             &mut current_member,
                         );
                     }

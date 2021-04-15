@@ -39,7 +39,7 @@ fn fetch(
         for line in headers.as_ref().unwrap() {
             // if can parse Header
             if let Ok(header) = ureq::Header::from_str(line) {
-                req = req.set(header.name(), header.value());
+                req = req.set(header.name(), header.value().unwrap_or_default());
             }
         }
     }

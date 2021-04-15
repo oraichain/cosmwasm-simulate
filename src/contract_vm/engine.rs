@@ -1,7 +1,7 @@
 extern crate cosmwasm_std;
 extern crate cosmwasm_vm;
 extern crate serde_json;
-use cosmwasm_std::{ContractResult, Uint128};
+use cosmwasm_std::{Coin, ContractResult, Uint128};
 use cosmwasm_vm::{Instance, InstanceOptions, Size};
 
 use crate::contract_vm::{analyzer, mock};
@@ -16,6 +16,7 @@ use wasmer_runtime_core::{
 };
 use wasmer_singlepass_backend::ModuleCodeGenerator as SinglePassMCG;
 
+const DEFAULT_CONTRACT_BALANCE: u64 = 10_000_000_000_000_000;
 const DEFAULT_GAS_LIMIT: u64 = 500_000_000_000_000;
 const COMPILE_GAS_LIMIT: u64 = 10_000_000_000;
 const DEFAULT_MEMORY_LIMIT: Size = Size::mebi(16);
@@ -40,8 +41,12 @@ fn compiler() -> Box<dyn Compiler> {
 }
 
 impl ContractInstance {
-    pub fn new_instance(wasm_file: &str) -> Result<Self, String> {
-        let deps = mock::new_mock(&[], "fake_contract_addr");
+    pub fn new_instance(wasm_file: &str, contract_addr: &str) -> Result<Self, String> {
+        let balances = vec![Coin {
+            denom: "orai".to_string(),
+            amount: Uint128::from(DEFAULT_CONTRACT_BALANCE),
+        }];
+        let deps = mock::new_mock(balances.as_slice(), contract_addr);
         let wasm = match analyzer::load_data_from_file(wasm_file) {
             Err(e) => return Err(e),
             Ok(code) => code,
@@ -67,6 +72,8 @@ impl ContractInstance {
             md,
             inst,
             wasm_file.to_string(),
+            contract_addr,
+            balances,
         ));
     }
 
@@ -74,6 +81,8 @@ impl ContractInstance {
         md: Module,
         inst: cosmwasm_vm::Instance<MockApi, MockStorage, MockQuerier<mock::SpecialQuery>>,
         file: String,
+        contract_addr: &str,
+        contract_balance: Vec<Coin>,
     ) -> ContractInstance {
         return ContractInstance {
             module: md,
@@ -81,11 +90,8 @@ impl ContractInstance {
             wasm_file: file,
             env: ContractInstance::build_mock_env(),
             message: cosmwasm_std::MessageInfo {
-                sender: cosmwasm_std::HumanAddr("fake_contract_addr".to_string()),
-                sent_funds: vec![cosmwasm_std::Coin {
-                    denom: "orai".to_string(),
-                    amount: Uint128(100000000),
-                }],
+                sender: cosmwasm_std::HumanAddr(contract_addr.to_string()),
+                sent_funds: contract_balance,
             },
             analyzer: analyzer::Analyzer::default(),
         };

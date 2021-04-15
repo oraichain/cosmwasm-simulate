@@ -5,6 +5,7 @@ use crate::analyzer::INDENT;
 use crate::contract_vm::editor::TerminalEditor;
 use crate::contract_vm::engine::ContractInstance;
 use clap::{App, Arg};
+use colored::*;
 use contract_vm::analyzer;
 use std::collections::HashMap;
 use std::ops::Add;
@@ -24,7 +25,7 @@ fn show_message_type(
     members: &Vec<contract_vm::analyzer::Member>,
     engine: &contract_vm::engine::ContractInstance,
 ) {
-    println!("{} {{", name);
+    println!("{} {{", name.blue().bold());
     for vcm in members {
         let st = match engine
             .analyzer
@@ -33,14 +34,29 @@ fn show_message_type(
         {
             Some(h) => h,
             _ => {
-                println!("{}{} : {}", INDENT, vcm.member_name, vcm.member_def);
+                println!(
+                    "{}{} : {}",
+                    INDENT,
+                    vcm.member_name.blue().bold(),
+                    vcm.member_def.yellow()
+                );
                 continue;
             }
         };
         //todo:need show all members by recursive invocation
-        println!("{}{} : {} {{ ", INDENT, vcm.member_name, vcm.member_def);
+        println!(
+            "{}{} : {} {{ ",
+            INDENT,
+            vcm.member_name.blue().bold(),
+            vcm.member_def.yellow()
+        );
         for members in st.1 {
-            println!("{}{} : {}", INDENT.repeat(2), members.0, members.1);
+            println!(
+                "{}{} : {}",
+                INDENT.repeat(2),
+                members.0.blue().bold(),
+                members.1.yellow()
+            );
         }
         println!("{}}}", INDENT);
     }
@@ -54,11 +70,21 @@ fn check_is_need_slash(name: &str) -> bool {
     return false;
 }
 
-fn to_json_item(name: &String, data: &String, type_name: &str) -> String {
+fn to_json_item(
+    name: &String,
+    type_name: &str,
+    engine: &contract_vm::engine::ContractInstance,
+) -> String {
+    let mut data: String = String::new();
+    input_with_out_handle(&mut data, true);
+    let mapped_type_name = match engine.analyzer.map_of_basetype.get(type_name) {
+        None => type_name,
+        Some(v) => v,
+    };
     let mut params = "\"".to_string();
     params += name.as_str();
     params += "\":";
-    if check_is_need_slash(type_name) {
+    if check_is_need_slash(mapped_type_name) {
         params += "\"";
         // clear enter and add slash to double quote
         params += data.replace('\n', "").replace('"', "\\\"").as_str();
@@ -76,13 +102,12 @@ fn input_type(
     type_name: &String,
     engine: &contract_vm::engine::ContractInstance,
 ) -> String {
-    println!("input [{}]:", mem_name);
+    println!("input [{}]:", mem_name.blue().bold());
     let st = match engine.analyzer.map_of_struct.get_key_value(type_name) {
         Some(h) => h,
         _ => {
-            let mut single: String = String::new();
-            input_with_out_handle(&mut single, true);
-            return to_json_item(&mem_name, &single, type_name);
+            // return to function, not return to st
+            return to_json_item(&mem_name, &type_name, engine);
         }
     };
     //todo:need show all members by recursive invocation
@@ -96,10 +121,13 @@ fn input_type(
     } else {
         params += "{";
         for members in st.1 {
-            println!("input {}[{} : {}]:", INDENT, members.0, members.1);
-            let mut single: String = String::new();
-            input_with_out_handle(&mut single, true);
-            params += to_json_item(&members.0, &single, members.1).as_str();
+            println!(
+                "input {}[{} : {}]:",
+                INDENT,
+                members.0.blue().bold(),
+                members.1.yellow()
+            );
+            params += to_json_item(&members.0, members.1, engine).as_str();
         }
         let (resv, _) = params.split_at(params.len() - 1);
         params = resv.to_string();
@@ -143,13 +171,20 @@ fn input_message(
     return final_msg;
 }
 
-fn simulate_by_auto_analyze(engine: &mut ContractInstance) {
-    engine.analyzer.dump_all_members();
-    engine.analyzer.dump_all_definitions();
+fn simulate_by_auto_analyze(engine: &mut ContractInstance, contract_addr: &str) {
     loop {
+        println!(
+            "Start_simulate with address: {}",
+            contract_addr.green().bold()
+        );
         let mut call_type = String::new();
         let mut call_param = String::new();
-        println!("Input call type (init | handle | query):");
+        println!(
+            "Input call type ({} | {} | {}):",
+            "init".green().bold(),
+            "handle".green().bold(),
+            "query".green().bold()
+        );
         unsafe {
             EDITOR.update_history_entries(vec![
                 "init".to_string(),
@@ -186,7 +221,7 @@ fn simulate_by_auto_analyze(engine: &mut ContractInstance) {
                     } else {
                         print!(" | ")
                     }
-                    print!("{}", k);
+                    print!("{}", k.green().bold());
                     EDITOR.add_history_entry(k);
                 }
             }
@@ -226,7 +261,7 @@ fn simulate_by_auto_analyze(engine: &mut ContractInstance) {
                         } else {
                             print!(" | ")
                         }
-                        print!("{}", k);
+                        print!("{}", k.green().bold());
                         EDITOR.add_history_entry(k);
                     }
                 }
@@ -262,11 +297,21 @@ fn simulate_by_auto_analyze(engine: &mut ContractInstance) {
     }
 }
 
-fn simulate_by_json(engine: &mut ContractInstance) {
+fn simulate_by_json(engine: &mut ContractInstance, contract_addr: &str) {
     loop {
+        println!(
+            "Start_simulate with address: {}",
+            contract_addr.green().bold()
+        );
         let mut call_type = String::new();
         let mut json_msg = String::new();
-        println!("Input call type (init | handle | query):");
+        println!(
+            "Input call type ({} | {} | {}):",
+            "init".green().bold(),
+            "handle".green().bold(),
+            "query".green().bold()
+        );
+
         unsafe {
             EDITOR.update_history_entries(vec![
                 "init".to_string(),
@@ -294,8 +339,8 @@ fn simulate_by_json(engine: &mut ContractInstance) {
     }
 }
 
-fn start_simulate(wasmfile: &str) -> Result<bool, String> {
-    let mut engine = match contract_vm::build_simulation(wasmfile) {
+fn start_simulate(wasmfile: &str, contract_addr: &str) -> Result<bool, String> {
+    let mut engine = match contract_vm::build_simulation(wasmfile, contract_addr) {
         Err(e) => return Err(e),
         Ok(instance) => instance,
     };
@@ -304,9 +349,13 @@ fn start_simulate(wasmfile: &str) -> Result<bool, String> {
         engine.show_module_info();
     }
     if engine.analyzer.auto_load_json_schema(&engine.wasm_file) {
-        simulate_by_auto_analyze(&mut engine);
+        // show info
+        engine.analyzer.dump_all_members();
+        engine.analyzer.dump_all_definitions();
+
+        simulate_by_auto_analyze(&mut engine, contract_addr);
     } else {
-        simulate_by_json(&mut engine);
+        simulate_by_json(&mut engine, contract_addr);
     }
     return Ok(true);
 }
@@ -321,6 +370,11 @@ fn prepare_command_line() -> bool {
                 .help("contract file that built by https://github.com/oraichain/smart-studio")
                 .empty_values(false),
         )
+        .arg(
+            Arg::with_name("contract")
+                .help("Contract Address")
+                .default_value("fake_contract_addr"),
+        )
         .get_matches();
 
     if let Some(file) = matches.value_of("run") {
@@ -331,17 +385,19 @@ fn prepare_command_line() -> bool {
             );
             return false;
         }
-        match start_simulate(file) {
-            Ok(t) => {
-                if t {
-                    println!("start_simulate success");
-                } else {
-                    println!("start_simulate failed")
+        if let Some(contract_addr) = matches.value_of("contract") {
+            match start_simulate(file, contract_addr) {
+                Ok(t) => {
+                    if t {
+                        println!("start_simulate success");
+                    } else {
+                        println!("start_simulate failed")
+                    }
                 }
+                Err(e) => println!("error occurred during call start_simulate : {}", e),
             }
-            Err(e) => println!("error occurred during call start_simulate : {}", e),
+            return true;
         }
-        return true;
     }
     return false;
 }
