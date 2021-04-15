@@ -83,12 +83,10 @@ pub fn new_mock(
 ) -> Backend<MockApi, MockStorage, MockQuerier<SpecialQuery>> {
     let human_addr = HumanAddr::from(contract_addr);
     // update custom_querier
-    let mut custom_querier: MockQuerier<SpecialQuery> =
-        MockQuerier::new(&[(&human_addr, contract_balance)]);
-    custom_querier =
-        custom_querier.with_custom_handler(|query| -> MockQuerierCustomHandlerResult {
-            custom_query_execute(&query)
-        });
+    let custom_querier: MockQuerier<SpecialQuery> =
+        MockQuerier::new(&[(&human_addr, contract_balance)]).with_custom_handler(
+            |query| -> MockQuerierCustomHandlerResult { custom_query_execute(&query) },
+        );
     Backend {
         api: MockApi::default(),
         storage: MockStorage::default(),
