@@ -512,14 +512,6 @@ fn prepare_command_line() -> bool {
         .get_matches();
 
     if let Some(file) = matches.value_of("run") {
-        if !file.ends_with(".wasm") {
-            println!(
-                "only support file[*.wasm], you just input a wrong file format - {:?}",
-                file.green().bold()
-            );
-            return false;
-        }
-
         if let Some(sender_addr) = matches.value_of("sender") {
             // start load, check other file as well
             let wasm_files = match load_artifacts(file) {
@@ -529,6 +521,15 @@ fn prepare_command_line() -> bool {
 
             // do not copy, use reference when loop
             for (wasm_file, contract_addr) in &wasm_files {
+                // check file
+                if !wasm_file.ends_with(".wasm") {
+                    println!(
+                        "only support file[*.wasm], you just input a wrong file format - {}",
+                        wasm_file.green().bold()
+                    );
+                    return false;
+                }
+
                 match contract_vm::build_simulation(
                     wasm_file.as_str(),
                     contract_addr.as_str(),
@@ -546,7 +547,9 @@ fn prepare_command_line() -> bool {
             }
 
             // simulate until break, start with first contract
-            return start_simulate_forever(wasm_files.first().unwrap().1.as_str(), sender_addr);
+            if wasm_files.len() > 0 {
+                return start_simulate_forever(wasm_files.first().unwrap().1.as_str(), sender_addr);
+            }
         }
     }
     return false;
