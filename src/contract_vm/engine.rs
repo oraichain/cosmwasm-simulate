@@ -5,8 +5,7 @@ use cosmwasm_std::{Coin, ContractResult, Uint128};
 use cosmwasm_vm::{Instance, InstanceOptions, Size};
 
 use crate::contract_vm::{analyzer, mock};
-use cosmwasm_vm::testing::{mock_env, MockApi, MockQuerier, MockStorage};
-
+use cosmwasm_vm::testing::{mock_env, MockApi, MockStorage};
 use std::fmt::Write;
 use wasmer_middleware_common::metering;
 use wasmer_runtime_core::{
@@ -24,7 +23,7 @@ const DEFAULT_PRINT_DEBUG: bool = true;
 
 pub struct ContractInstance {
     pub module: Module,
-    pub instance: Instance<MockApi, MockStorage, MockQuerier<mock::SpecialQuery>>,
+    pub instance: Instance<MockApi, MockStorage, mock::MockQuerier<mock::SpecialQuery>>,
     pub wasm_file: String,
     pub env: cosmwasm_std::Env,
     pub message: cosmwasm_std::MessageInfo,
@@ -41,11 +40,16 @@ fn compiler() -> Box<dyn Compiler> {
 }
 
 impl ContractInstance {
-    pub fn new_instance(wasm_file: &str, contract_addr: &str) -> Result<Self, String> {
+    pub fn new_instance(
+        wasm_file: &str,
+        contract_addr: &str,
+        sender_addr: &str,
+    ) -> Result<Self, String> {
         let balances = vec![Coin {
             denom: "orai".to_string(),
             amount: Uint128::from(DEFAULT_CONTRACT_BALANCE),
         }];
+
         let deps = mock::new_mock(balances.as_slice(), contract_addr);
         let wasm = match analyzer::load_data_from_file(wasm_file) {
             Err(e) => return Err(e),
@@ -72,17 +76,17 @@ impl ContractInstance {
             md,
             inst,
             wasm_file.to_string(),
-            contract_addr,
+            sender_addr,
             balances,
         ));
     }
 
     fn make_instance(
         md: Module,
-        inst: cosmwasm_vm::Instance<MockApi, MockStorage, MockQuerier<mock::SpecialQuery>>,
+        inst: cosmwasm_vm::Instance<MockApi, MockStorage, mock::MockQuerier<mock::SpecialQuery>>,
         file: String,
-        contract_addr: &str,
-        contract_balance: Vec<Coin>,
+        sender_addr: &str,
+        sent_balances: Vec<Coin>,
     ) -> ContractInstance {
         return ContractInstance {
             module: md,
@@ -90,8 +94,8 @@ impl ContractInstance {
             wasm_file: file,
             env: ContractInstance::build_mock_env(),
             message: cosmwasm_std::MessageInfo {
-                sender: cosmwasm_std::HumanAddr(contract_addr.to_string()),
-                sent_funds: contract_balance,
+                sender: cosmwasm_std::HumanAddr(sender_addr.to_string()),
+                sent_funds: sent_balances,
             },
             analyzer: analyzer::Analyzer::default(),
         };

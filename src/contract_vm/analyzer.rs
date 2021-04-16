@@ -52,6 +52,7 @@ pub struct Analyzer {
     pub map_of_struct: HashMap<String, HashMap<String, String>>,
     pub map_of_member: HashMap<String, HashMap<String, Vec<Member>>>,
     pub map_of_enum: HashMap<String, bool>,
+    pub is_analyzed: bool,
 }
 
 impl Analyzer {
@@ -61,6 +62,7 @@ impl Analyzer {
             map_of_struct: HashMap::new(),
             map_of_member: HashMap::new(),
             map_of_enum: HashMap::new(),
+            is_analyzed: false,
         };
     }
 
@@ -370,6 +372,9 @@ impl Analyzer {
 
     //load jsonschema file, translate from json string to func:params...
     pub fn try_load_json_schema(&mut self, dir: String) -> bool {
+        if self.is_analyzed {
+            return true;
+        }
         let all_json_file = match std::fs::read_dir(dir) {
             Err(_e) => return false,
             Ok(f) => f,
@@ -377,6 +382,7 @@ impl Analyzer {
         for file in all_json_file {
             self.analyze_schema(file.unwrap().path().display().to_string());
         }
+        self.is_analyzed = true;
         return true;
     }
 

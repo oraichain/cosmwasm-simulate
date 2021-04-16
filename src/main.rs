@@ -1,7 +1,9 @@
 extern crate clap;
 
 pub mod contract_vm;
+
 use crate::analyzer::INDENT;
+use crate::contract_vm::analyzer::Member;
 use crate::contract_vm::editor::TerminalEditor;
 use crate::contract_vm::engine::ContractInstance;
 use clap::{App, Arg};
@@ -9,22 +11,20 @@ use colored::*;
 use contract_vm::analyzer;
 use std::collections::HashMap;
 use std::ops::Add;
+use std::path::Path;
 
 #[macro_use]
 extern crate lazy_mut;
 lazy_mut! {
     static mut EDITOR: TerminalEditor = TerminalEditor::new();
+    static mut ENGINES : HashMap<String, ContractInstance> = HashMap::new();
 }
 
 fn input_with_out_handle(input_data: &mut String, store_input: bool) -> bool {
     unsafe { EDITOR.readline(input_data, store_input) }
 }
 
-fn show_message_type(
-    name: &str,
-    members: &Vec<contract_vm::analyzer::Member>,
-    engine: &contract_vm::engine::ContractInstance,
-) {
+fn show_message_type(name: &str, members: &Vec<Member>, engine: &ContractInstance) {
     println!("{} {{", name.blue().bold());
     for vcm in members {
         let st = match engine
@@ -70,11 +70,7 @@ fn check_is_need_slash(name: &str) -> bool {
     return false;
 }
 
-fn to_json_item(
-    name: &String,
-    type_name: &str,
-    engine: &contract_vm::engine::ContractInstance,
-) -> String {
+fn to_json_item(name: &String, type_name: &str, engine: &ContractInstance) -> String {
     let mut data: String = String::new();
     input_with_out_handle(&mut data, true);
     let mapped_type_name = match engine.analyzer.map_of_basetype.get(type_name) {
@@ -97,11 +93,7 @@ fn to_json_item(
     return params;
 }
 
-fn input_type(
-    mem_name: &String,
-    type_name: &String,
-    engine: &contract_vm::engine::ContractInstance,
-) -> String {
+fn input_type(mem_name: &String, type_name: &String, engine: &ContractInstance) -> String {
     println!("input [{}]:", mem_name.blue().bold());
     let st = match engine.analyzer.map_of_struct.get_key_value(type_name) {
         Some(h) => h,
@@ -141,8 +133,8 @@ fn input_type(
 
 fn input_message(
     name: &str,
-    members: &Vec<contract_vm::analyzer::Member>,
-    engine: &contract_vm::engine::ContractInstance,
+    members: &Vec<Member>,
+    engine: &ContractInstance,
     is_enum: &bool,
 ) -> String {
     let mut final_msg: String = "{".to_string();
@@ -174,7 +166,7 @@ fn input_message(
 fn simulate_by_auto_analyze(engine: &mut ContractInstance, contract_addr: &str) {
     loop {
         println!(
-            "Start_simulate with address: {}",
+            "Start_simulate with sender address: {}",
             contract_addr.green().bold()
         );
         let mut call_type = String::new();
@@ -237,7 +229,7 @@ fn simulate_by_auto_analyze(engine: &mut ContractInstance, contract_addr: &str) 
             .get(&call_param)
             .unwrap_or(&false);
 
-        let msg_type: &HashMap<String, Vec<contract_vm::analyzer::Member>> =
+        let msg_type: &HashMap<String, Vec<Member>> =
             match engine.analyzer.map_of_member.get(call_param.as_str()) {
                 None => {
                     println!("can not find msg type {}", call_param.as_str());
@@ -300,7 +292,7 @@ fn simulate_by_auto_analyze(engine: &mut ContractInstance, contract_addr: &str) 
 fn simulate_by_json(engine: &mut ContractInstance, contract_addr: &str) {
     loop {
         println!(
-            "Start_simulate with address: {}",
+            "Start_simulate with sender address: {}",
             contract_addr.green().bold()
         );
         let mut call_type = String::new();
@@ -339,23 +331,23 @@ fn simulate_by_json(engine: &mut ContractInstance, contract_addr: &str) {
     }
 }
 
-fn start_simulate(wasmfile: &str, contract_addr: &str) -> Result<bool, String> {
-    let mut engine = match contract_vm::build_simulation(wasmfile, contract_addr) {
-        Err(e) => return Err(e),
-        Ok(instance) => instance,
-    };
-    // enable debug
-    if cfg!(debug_assertions) {
-        engine.show_module_info();
-    }
-    if engine.analyzer.auto_load_json_schema(&engine.wasm_file) {
-        // show info
-        engine.analyzer.dump_all_members();
-        engine.analyzer.dump_all_definitions();
+fn start_simulate(wasmfile: &str, sender_addr: &str) -> Result<bool, String> {
+    let contract_addr = Path::new(wasmfile).file_stem().unwrap().to_str().unwrap();
+    unsafe {
+        let mut engine = ENGINES.get_mut(contract_addr).unwrap();
+        // enable debug
+        if cfg!(debug_assertions) {
+            engine.show_module_info();
+        }
+        if engine.analyzer.auto_load_json_schema(&engine.wasm_file) {
+            // show info
+            engine.analyzer.dump_all_members();
+            engine.analyzer.dump_all_definitions();
 
-        simulate_by_auto_analyze(&mut engine, contract_addr);
-    } else {
-        simulate_by_json(&mut engine, contract_addr);
+            simulate_by_auto_analyze(&mut engine, sender_addr);
+        } else {
+            simulate_by_json(&mut engine, sender_addr);
+        }
     }
     return Ok(true);
 }
@@ -371,9 +363,9 @@ fn prepare_command_line() -> bool {
                 .empty_values(false),
         )
         .arg(
-            Arg::with_name("contract")
-                .help("Contract Address")
-                .default_value("fake_contract_addr"),
+            Arg::with_name("sender")
+                .help("Sender Address")
+                .default_value("fake_sender_addr"),
         )
         .get_matches();
 
@@ -385,8 +377,15 @@ fn prepare_command_line() -> bool {
             );
             return false;
         }
-        if let Some(contract_addr) = matches.value_of("contract") {
-            match start_simulate(file, contract_addr) {
+
+        // start load
+        // let mut engine = match contract_vm::build_simulation(wasmfile, contract_addr, sender_addr) {
+        //     Err(e) => return Err(e),
+        //     Ok(instance) => instance,
+        // };
+
+        if let Some(sender_addr) = matches.value_of("sender") {
+            match start_simulate(file, sender_addr) {
                 Ok(t) => {
                     if t {
                         println!("start_simulate success");
