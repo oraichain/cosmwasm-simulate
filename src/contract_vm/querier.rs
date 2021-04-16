@@ -6,8 +6,8 @@ use cosmwasm_std::testing::MockQuerierCustomHandlerResult;
 use cosmwasm_std::{
     to_binary, AllBalanceResponse, AllDelegationsResponse, BalanceResponse, BankQuery, Binary,
     BondedDenomResponse, Coin, ContractResult, CustomQuery, Empty, FullDelegation, HumanAddr,
-    QuerierResult, QueryRequest, StakingQuery, SystemError, SystemResult, Validator,
-    ValidatorsResponse, WasmQuery,
+    QuerierResult, QueryRequest, StakingQuery, SystemResult, Validator, ValidatorsResponse,
+    WasmQuery,
 };
 
 /// DelegationResponse is data format returned from StakingRequest::Delegation query
@@ -17,32 +17,35 @@ pub struct DelegationResponse {
     pub delegation: Option<FullDelegation>,
 }
 
+pub type CustomHandler<C> = Box<dyn for<'a> Fn(&'a C) -> MockQuerierCustomHandlerResult>;
+pub type WasmHandler = fn(&WasmQuery) -> QuerierResult;
+
 /// StdMockQuerier holds an immutable table of bank balances
 /// TODO: also allow querying contracts
 pub struct StdMockQuerier<C: DeserializeOwned = Empty> {
     bank: BankQuerier,
     staking: StakingQuerier,
     // placeholder to add support later
-    wasm: WasmQuerier,
+    wasm_handler: WasmHandler,
     /// A handler to handle custom queries. This is set to a dummy handler that
     /// always errors by default. Update it via `with_custom_handler`.
     ///
     /// Use box to avoid the need of another generic type
-    custom_handler: Box<dyn for<'a> Fn(&'a C) -> MockQuerierCustomHandlerResult>,
+    custom_handler: CustomHandler<C>,
 }
 
 impl<C: DeserializeOwned> StdMockQuerier<C> {
-    pub fn new(balances: &[(&HumanAddr, &[Coin])]) -> Self {
+    pub fn new(
+        balances: &[(&HumanAddr, &[Coin])],
+        custom_handler: CustomHandler<C>,
+        wasm_handler: WasmHandler,
+    ) -> Self {
         StdMockQuerier {
             bank: BankQuerier::new(balances),
             staking: StakingQuerier::default(),
-            wasm: WasmQuerier {},
+            wasm_handler,
             // strange argument notation suggested as a workaround here: https://github.com/rust-lang/rust/issues/41078#issuecomment-294296365
-            custom_handler: Box::from(|_: &_| -> MockQuerierCustomHandlerResult {
-                SystemResult::Err(SystemError::UnsupportedRequest {
-                    kind: "custom".to_string(),
-                })
-            }),
+            custom_handler,
         }
     }
 
@@ -80,24 +83,8 @@ impl<C: CustomQuery + DeserializeOwned> StdMockQuerier<C> {
             QueryRequest::Bank(bank_query) => self.bank.query(bank_query),
             QueryRequest::Custom(custom_query) => (*self.custom_handler)(custom_query),
             QueryRequest::Staking(staking_query) => self.staking.query(staking_query),
-            QueryRequest::Wasm(msg) => self.wasm.query(msg),
+            QueryRequest::Wasm(msg) => (self.wasm_handler)(msg),
         }
-    }
-}
-
-#[derive(Clone, Default)]
-struct WasmQuerier {
-    // FIXME: actually provide a way to call out
-}
-
-impl WasmQuerier {
-    fn query(&self, request: &WasmQuery) -> QuerierResult {
-        let addr = match request {
-            WasmQuery::Smart { contract_addr, .. } => contract_addr,
-            WasmQuery::Raw { contract_addr, .. } => contract_addr,
-        }
-        .clone();
-        SystemResult::Err(SystemError::NoSuchContract { addr })
     }
 }
 

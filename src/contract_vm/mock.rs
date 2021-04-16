@@ -10,7 +10,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
-use crate::contract_vm::querier::StdMockQuerier;
+use crate::contract_vm::querier::{CustomHandler, StdMockQuerier, WasmHandler};
 
 /// Implement MockQuerier
 
@@ -27,9 +27,13 @@ pub struct MockQuerier<C: CustomQuery + DeserializeOwned = Empty> {
 }
 
 impl<C: CustomQuery + DeserializeOwned> MockQuerier<C> {
-    pub fn new(balances: &[(&HumanAddr, &[Coin])]) -> Self {
+    pub fn new(
+        balances: &[(&HumanAddr, &[Coin])],
+        custom_handler: CustomHandler<C>,
+        wasm_handler: WasmHandler,
+    ) -> Self {
         MockQuerier {
-            querier: StdMockQuerier::new(balances),
+            querier: StdMockQuerier::new(balances, custom_handler, wasm_handler),
         }
     }
 
@@ -198,13 +202,15 @@ pub fn custom_query_execute(query: &SpecialQuery) -> MockQuerierCustomHandlerRes
 pub fn new_mock(
     contract_balance: &[Coin],
     contract_addr: &str,
+    wasm_handler: WasmHandler,
 ) -> Backend<MockApi, MockStorage, MockQuerier<SpecialQuery>> {
     let human_addr = HumanAddr::from(contract_addr);
     // update custom_querier
-    let custom_querier: MockQuerier<SpecialQuery> =
-        MockQuerier::new(&[(&human_addr, contract_balance)]).with_custom_handler(
-            |query| -> MockQuerierCustomHandlerResult { custom_query_execute(&query) },
-        );
+    let custom_querier: MockQuerier<SpecialQuery> = MockQuerier::new(
+        &[(&human_addr, contract_balance)],
+        Box::new(|query| -> MockQuerierCustomHandlerResult { custom_query_execute(&query) }),
+        wasm_handler,
+    );
     Backend {
         api: MockApi::default(),
         storage: MockStorage::default(),

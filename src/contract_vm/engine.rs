@@ -1,9 +1,13 @@
 extern crate cosmwasm_std;
 extern crate cosmwasm_vm;
 extern crate serde_json;
+
+use colored::*;
+
 use cosmwasm_std::{Coin, ContractResult, Uint128};
 use cosmwasm_vm::{Instance, InstanceOptions, Size};
 
+use crate::contract_vm::querier::WasmHandler;
 use crate::contract_vm::{analyzer, mock};
 use cosmwasm_vm::testing::{mock_env, MockApi, MockStorage};
 use std::fmt::Write;
@@ -20,6 +24,8 @@ const DEFAULT_GAS_LIMIT: u64 = 500_000_000_000_000;
 const COMPILE_GAS_LIMIT: u64 = 10_000_000_000;
 const DEFAULT_MEMORY_LIMIT: Size = Size::mebi(16);
 const DEFAULT_PRINT_DEBUG: bool = true;
+const DENOM: &str = "orai";
+const CHAIN_ID: &str = "Oraichain";
 
 pub struct ContractInstance {
     pub module: Module,
@@ -44,13 +50,14 @@ impl ContractInstance {
         wasm_file: &str,
         contract_addr: &str,
         sender_addr: &str,
+        query_wasm: WasmHandler,
     ) -> Result<Self, String> {
         let balances = vec![Coin {
-            denom: "orai".to_string(),
+            denom: DENOM.to_string(),
             amount: Uint128::from(DEFAULT_CONTRACT_BALANCE),
         }];
 
-        let deps = mock::new_mock(balances.as_slice(), contract_addr);
+        let deps = mock::new_mock(balances.as_slice(), contract_addr, query_wasm);
         let wasm = match analyzer::load_data_from_file(wasm_file) {
             Err(e) => return Err(e),
             Ok(code) => code,
@@ -67,7 +74,10 @@ impl ContractInstance {
         };
         let inst = match cosmwasm_vm::Instance::from_code(wasm.as_slice(), deps, inst_options) {
             Err(e) => {
-                println!("cosmwasm_vm::Instance::from_code return error {}", e);
+                println!(
+                    "cosmwasm_vm::Instance::from_code return error {}",
+                    e.to_string().red()
+                );
                 return Err("Instance from code execute failed!".to_string());
             }
             Ok(i) => i,
@@ -103,7 +113,7 @@ impl ContractInstance {
 
     fn build_mock_env() -> cosmwasm_std::Env {
         let mut env = mock_env();
-        env.block.chain_id = "Oraichain".to_string();
+        env.block.chain_id = CHAIN_ID.to_string();
         env
     }
 
@@ -133,11 +143,16 @@ impl ContractInstance {
             }
         }
 
-        println!("{} = {}", key, value_str);
+        println!("{} = {}", key.blue().bold(), value_str.yellow());
     }
+
     pub fn call(&mut self, func_type: String, param: String) -> String {
         println!("***************************call started***************************");
-        println!("executing func [{}] , params is {}", func_type, param);
+        println!(
+            "executing func [{}] , params is {}",
+            func_type.green().bold(),
+            param.yellow()
+        );
         let gas_init = self.instance.get_gas_left();
         if func_type == "init" {
             let result = cosmwasm_vm::call_init::<_, _, _, cosmwasm_std::Empty>(
@@ -154,7 +169,7 @@ impl ContractInstance {
                         ContractInstance::dump_result(&msg.key, msg.value.as_bytes());
                     }
                 }
-                ContractResult::Err(err) => println!("Contract Error: {}", err.to_string()),
+                ContractResult::Err(err) => println!("{}", err.to_string().red()),
             }
         } else if func_type == "handle" {
             let result = cosmwasm_vm::call_handle::<_, _, _, cosmwasm_std::Empty>(
@@ -172,7 +187,7 @@ impl ContractInstance {
                         ContractInstance::dump_result(&msg.key, msg.value.as_bytes());
                     }
                 }
-                ContractResult::Err(err) => println!("Contract Error: {}", err.to_string()),
+                ContractResult::Err(err) => println!("{}", err.to_string().red()),
             }
         } else if func_type == "query" {
             // check param if it is custom, we will try to check for oracle special query to implement, otherwise forward
@@ -184,13 +199,13 @@ impl ContractInstance {
                 ContractResult::Ok(val) => {
                     ContractInstance::dump_result("query data", val.as_slice());
                 }
-                ContractResult::Err(err) => println!("Contract Error: {}", err.to_string()),
+                ContractResult::Err(err) => println!("{}", err.to_string().red()),
             }
         } else {
-            println!("wrong dispatcher call {}", func_type);
+            println!("wrong dispatcher call {}", func_type.green().bold());
         }
         let gas_used = gas_init - self.instance.get_gas_left();
-        println!("Gas used   : {}", gas_used);
+        println!("Gas used   : {}", gas_used.to_string().yellow());
         println!("***************************call finished***************************");
         return "Execute Success".to_string();
     }

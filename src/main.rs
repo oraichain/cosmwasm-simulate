@@ -9,6 +9,7 @@ use crate::contract_vm::engine::ContractInstance;
 use clap::{App, Arg};
 use colored::*;
 use contract_vm::analyzer;
+use cosmwasm_std::{QuerierResult, SystemError, SystemResult, WasmQuery};
 use std::collections::HashMap;
 use std::ops::Add;
 use std::path::Path;
@@ -18,6 +19,32 @@ extern crate lazy_mut;
 lazy_mut! {
     static mut EDITOR: TerminalEditor = TerminalEditor::new();
     static mut ENGINES : HashMap<String, ContractInstance> = HashMap::new();
+}
+
+fn query_wasm(request: &WasmQuery) -> QuerierResult {
+    unsafe {
+        match request {
+            WasmQuery::Smart { contract_addr, msg } => {
+                match ENGINES.get_mut(contract_addr.as_str()) {
+                    None => SystemResult::Err(SystemError::NoSuchContract {
+                        addr: contract_addr.to_owned(),
+                    }),
+                    Some(engine) => {
+                        let result = cosmwasm_vm::call_query(
+                            &mut engine.instance,
+                            &engine.env,
+                            msg.as_slice(),
+                        )
+                        .unwrap();
+                        SystemResult::Ok(result)
+                    }
+                }
+            }
+            _ => SystemResult::Err(SystemError::UnsupportedRequest {
+                kind: "Not implemented".to_string(),
+            }),
+        }
+    }
 }
 
 fn input_with_out_handle(input_data: &mut String, store_input: bool) -> bool {
@@ -163,39 +190,112 @@ fn input_message(
     return final_msg;
 }
 
-fn simulate_by_auto_analyze(engine: &mut ContractInstance, contract_addr: &str) {
-    loop {
-        println!(
-            "Start_simulate with sender address: {}",
-            contract_addr.green().bold()
-        );
-        let mut call_type = String::new();
-        let mut call_param = String::new();
-        println!(
-            "Input call type ({} | {} | {}):",
-            "init".green().bold(),
-            "handle".green().bold(),
-            "query".green().bold()
-        );
-        unsafe {
-            EDITOR.update_history_entries(vec![
-                "init".to_string(),
-                "handle".to_string(),
-                "query".to_string(),
-            ]);
+fn get_call_type() -> Option<(String, bool)> {
+    let mut call_type = String::new();
+    let mut params = vec![
+        "init".to_string(),
+        "handle".to_string(),
+        "query".to_string(),
+    ];
+    let mut need_switch = false;
+
+    print!(
+        "Input call type ({} | {} | {}",
+        "init".green().bold(),
+        "handle".green().bold(),
+        "query".green().bold(),
+    );
+    unsafe {
+        if ENGINES.len() > 1 {
+            need_switch = true;
         }
-        input_with_out_handle(&mut call_type, false);
-        if call_type.ne("init") && call_type.ne("handle") && call_type.ne("query") {
-            println!(
-                "Wrong call type[{}], must one of (init | handle | query)",
-                call_type
-            );
-            continue;
+        if need_switch {
+            print!(" | {}", "switch".blue().bold());
+            params.push("switch".to_string());
+        }
+        EDITOR.update_history_entries(params);
+    }
+    println!(")");
+    input_with_out_handle(&mut call_type, false);
+    if call_type.ne("init")
+        && call_type.ne("handle")
+        && call_type.ne("query")
+        && need_switch
+        && call_type.ne("switch")
+    {
+        print!(
+            "Wrong call type[{}], must one of (init | handle | query",
+            call_type
+        );
+        if need_switch {
+            print!(" | switch)");
+        }
+        println!(")");
+        return None;
+    }
+
+    // default messages
+    if need_switch && call_type.eq("switch") {
+        let mut first = true;
+        let mut call_param = String::new();
+        print!("Choose smart contract [ ");
+        unsafe {
+            EDITOR.clear_history();
+
+            for k in ENGINES.keys() {
+                if first {
+                    first = false;
+                } else {
+                    print!(" | ")
+                }
+                print!("{}", k.green().bold());
+                EDITOR.add_history_entry(k);
+            }
+        }
+        print!(" ]\n");
+
+        input_with_out_handle(&mut call_param, false);
+
+        // check contract existed
+        unsafe {
+            if ENGINES.get(&call_param).is_none() {
+                println!("Smart contract {} not existed", call_param.red().bold());
+                return None;
+            }
         }
 
+        // return contract as switch param
+        return Some((call_param, true));
+    }
+
+    return Some((call_type, false));
+}
+
+fn simulate_by_auto_analyze(
+    engine: &mut ContractInstance,
+    sender_addr: &str,
+) -> Result<(bool, String), String> {
+    loop {
+        println!(
+            "Start_simulate with sender: {}, contract: {}",
+            sender_addr.green().bold(),
+            engine.env.contract.address.green().bold()
+        );
+
+        let (call_type, is_switch) = match get_call_type() {
+            None => continue,
+            Some(s) => s,
+        };
+
+        let mut call_param = String::new();
         let mut first = true;
         // default messages
-        if call_type.eq("init") && engine.analyzer.map_of_member.contains_key("InitMsg") {
+        if is_switch {
+            if engine.env.contract.address.to_string().ne(&call_param) {
+                return Ok((true, call_type));
+            }
+            continue;
+        } else if call_type.eq("init") && engine.analyzer.map_of_member.contains_key("InitMsg") {
             call_param = "InitMsg".to_string();
         } else if call_type.eq("handle") && engine.analyzer.map_of_member.contains_key("HandleMsg")
         {
@@ -285,54 +385,45 @@ fn simulate_by_auto_analyze(engine: &mut ContractInstance, contract_addr: &str) 
         println!("call {} - {}", call_type, json_msg);
 
         let result = engine.call(call_type, json_msg);
-        println!("Call return msg [{}]", result);
+        println!("Call return msg [{}]", result.green().bold());
     }
 }
 
-fn simulate_by_json(engine: &mut ContractInstance, contract_addr: &str) {
+fn simulate_by_json(
+    engine: &mut ContractInstance,
+    contract_addr: &str,
+) -> Result<(bool, String), String> {
     loop {
         println!(
             "Start_simulate with sender address: {}",
             contract_addr.green().bold()
         );
-        let mut call_type = String::new();
-        let mut json_msg = String::new();
-        println!(
-            "Input call type ({} | {} | {}):",
-            "init".green().bold(),
-            "handle".green().bold(),
-            "query".green().bold()
-        );
+        let (call_type, is_switch) = match get_call_type() {
+            None => continue,
+            Some(s) => s,
+        };
 
-        unsafe {
-            EDITOR.update_history_entries(vec![
-                "init".to_string(),
-                "handle".to_string(),
-                "query".to_string(),
-            ]);
-        }
-        input_with_out_handle(&mut call_type, false);
-        if call_type.ne("init") && call_type.ne("handle") && call_type.ne("query") {
-            println!(
-                "Wrong call type[{}], must one of (init | handle | query)",
-                call_type
-            );
+        // default messages
+        if is_switch {
+            if engine.env.contract.address.to_string().ne(&call_type) {
+                return Ok((true, call_type));
+            }
             continue;
         }
-        println!("Input json string:");
 
+        println!("Input json string:");
+        let mut json_msg = String::new();
         // update previous history entries
         unsafe {
             EDITOR.update_input_history_entry();
         }
         input_with_out_handle(&mut json_msg, true);
         let result = engine.call(call_type, json_msg);
-        println!("Call return msg [{}]", result);
+        println!("Call return msg [{}]", result.green().bold());
     }
 }
 
-fn start_simulate(wasmfile: &str, sender_addr: &str) -> Result<bool, String> {
-    let contract_addr = Path::new(wasmfile).file_stem().unwrap().to_str().unwrap();
+fn start_simulate(contract_addr: &str, sender_addr: &str) -> Result<(bool, String), String> {
     unsafe {
         let mut engine = ENGINES.get_mut(contract_addr).unwrap();
         // enable debug
@@ -344,12 +435,63 @@ fn start_simulate(wasmfile: &str, sender_addr: &str) -> Result<bool, String> {
             engine.analyzer.dump_all_members();
             engine.analyzer.dump_all_definitions();
 
-            simulate_by_auto_analyze(&mut engine, sender_addr);
+            return simulate_by_auto_analyze(&mut engine, sender_addr);
         } else {
-            simulate_by_json(&mut engine, sender_addr);
+            return simulate_by_json(&mut engine, sender_addr);
         }
     }
-    return Ok(true);
+}
+
+fn start_simulate_forever(contract_addr: &str, sender_addr: &str) -> bool {
+    match start_simulate(contract_addr, sender_addr) {
+        Ok(ret) => {
+            if ret.0 {
+                println!(
+                    "start_simulate success for contract: {}",
+                    contract_addr.blue().bold()
+                );
+                // recursive
+                start_simulate_forever(ret.1.as_str(), sender_addr)
+            } else {
+                println!(
+                    "start_simulate failed for contract: {}",
+                    contract_addr.blue().bold()
+                );
+                return false;
+            }
+        }
+        Err(e) => {
+            println!("error occurred during call start_simulate : {}", e.red());
+            return false;
+        }
+    }
+}
+
+fn load_artifacts(file_path: &str) -> Result<Vec<(String, String)>, std::io::Error> {
+    let contract_addr = Path::new(file_path).file_stem().unwrap().to_str().unwrap();
+    let mut file_paths = vec![(file_path.to_string(), contract_addr.to_string())];
+
+    let seg = match file_path.rfind('/') {
+        None => return Ok(file_paths),
+        Some(idx) => idx,
+    };
+    let (parent_path, _) = file_path.split_at(seg);
+
+    let artifacts_folder = parent_path.to_string() + "/artifacts";
+
+    for entry in std::fs::read_dir(artifacts_folder)? {
+        let dir = entry?;
+        if let Some(contract_addr) = dir.file_name().to_str() {
+            if let Some(file) = dir.path().to_str() {
+                file_paths.push((
+                    file.to_string() + "/" + contract_addr + ".wasm",
+                    contract_addr.to_string(),
+                ));
+            }
+        }
+    }
+
+    return Ok(file_paths);
 }
 
 fn prepare_command_line() -> bool {
@@ -373,29 +515,38 @@ fn prepare_command_line() -> bool {
         if !file.ends_with(".wasm") {
             println!(
                 "only support file[*.wasm], you just input a wrong file format - {:?}",
-                file
+                file.green().bold()
             );
             return false;
         }
 
-        // start load
-        // let mut engine = match contract_vm::build_simulation(wasmfile, contract_addr, sender_addr) {
-        //     Err(e) => return Err(e),
-        //     Ok(instance) => instance,
-        // };
-
         if let Some(sender_addr) = matches.value_of("sender") {
-            match start_simulate(file, sender_addr) {
-                Ok(t) => {
-                    if t {
-                        println!("start_simulate success");
-                    } else {
-                        println!("start_simulate failed")
+            // start load, check other file as well
+            let wasm_files = match load_artifacts(file) {
+                Err(_) => vec![],
+                Ok(s) => s,
+            };
+
+            // do not copy, use reference when loop
+            for (wasm_file, contract_addr) in &wasm_files {
+                match contract_vm::build_simulation(
+                    wasm_file.as_str(),
+                    contract_addr.as_str(),
+                    sender_addr,
+                    query_wasm,
+                ) {
+                    Err(e) => {
+                        println!("error occurred during install contract: {}", e.red());
+                        return false;
                     }
-                }
-                Err(e) => println!("error occurred during call start_simulate : {}", e),
+                    Ok(instance) => unsafe {
+                        ENGINES.insert(contract_addr.to_string(), instance);
+                    },
+                };
             }
-            return true;
+
+            // simulate until break, start with first contract
+            return start_simulate_forever(wasm_files.first().unwrap().1.as_str(), sender_addr);
         }
     }
     return false;
