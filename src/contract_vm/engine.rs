@@ -4,12 +4,14 @@ extern crate serde_json;
 
 use colored::*;
 
-use cosmwasm_std::{Coin, ContractResult, Uint128};
+use cosmwasm_std::{
+    BlockInfo, Coin, ContractInfo, ContractResult, Empty, Env, HumanAddr, MessageInfo, Uint128,
+};
 use cosmwasm_vm::{Instance, InstanceOptions, Size};
 
 use crate::contract_vm::querier::WasmHandler;
 use crate::contract_vm::{analyzer, mock};
-use cosmwasm_vm::testing::{mock_env, MockApi, MockStorage};
+use cosmwasm_vm::testing::{MockApi, MockStorage};
 use std::fmt::Write;
 use wasmer_middleware_common::metering;
 use wasmer_runtime_core::{
@@ -31,8 +33,8 @@ pub struct ContractInstance {
     pub module: Module,
     pub instance: Instance<MockApi, MockStorage, mock::MockQuerier<mock::SpecialQuery>>,
     pub wasm_file: String,
-    pub env: cosmwasm_std::Env,
-    pub message: cosmwasm_std::MessageInfo,
+    pub env: Env,
+    pub message: MessageInfo,
     pub analyzer: analyzer::Analyzer,
 }
 
@@ -86,6 +88,7 @@ impl ContractInstance {
             md,
             inst,
             wasm_file.to_string(),
+            contract_addr,
             sender_addr,
             balances,
         ));
@@ -95,6 +98,7 @@ impl ContractInstance {
         md: Module,
         inst: cosmwasm_vm::Instance<MockApi, MockStorage, mock::MockQuerier<mock::SpecialQuery>>,
         file: String,
+        contract_addr: &str,
         sender_addr: &str,
         sent_balances: Vec<Coin>,
     ) -> ContractInstance {
@@ -102,19 +106,23 @@ impl ContractInstance {
             module: md,
             instance: inst,
             wasm_file: file,
-            env: ContractInstance::build_mock_env(),
-            message: cosmwasm_std::MessageInfo {
-                sender: cosmwasm_std::HumanAddr(sender_addr.to_string()),
+            env: Env {
+                block: BlockInfo {
+                    height: 12_345,
+                    time: 1_571_797_419,
+                    time_nanos: 879305533,
+                    chain_id: CHAIN_ID.to_string(),
+                },
+                contract: ContractInfo {
+                    address: HumanAddr::from(contract_addr),
+                },
+            },
+            message: MessageInfo {
+                sender: HumanAddr(sender_addr.to_string()),
                 sent_funds: sent_balances,
             },
             analyzer: analyzer::Analyzer::default(),
         };
-    }
-
-    fn build_mock_env() -> cosmwasm_std::Env {
-        let mut env = mock_env();
-        env.block.chain_id = CHAIN_ID.to_string();
-        env
     }
 
     pub fn show_module_info(&self) {
@@ -155,7 +163,7 @@ impl ContractInstance {
         );
         let gas_init = self.instance.get_gas_left();
         if func_type == "init" {
-            let result = cosmwasm_vm::call_init::<_, _, _, cosmwasm_std::Empty>(
+            let result = cosmwasm_vm::call_init::<_, _, _, Empty>(
                 &mut self.instance,
                 &self.env,
                 &self.message,
@@ -172,7 +180,7 @@ impl ContractInstance {
                 ContractResult::Err(err) => println!("{}", err.to_string().red()),
             }
         } else if func_type == "handle" {
-            let result = cosmwasm_vm::call_handle::<_, _, _, cosmwasm_std::Empty>(
+            let result = cosmwasm_vm::call_handle::<_, _, _, Empty>(
                 &mut self.instance,
                 &self.env,
                 &self.message,
