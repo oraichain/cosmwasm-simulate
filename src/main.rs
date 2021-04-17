@@ -501,7 +501,7 @@ fn prepare_command_line() -> bool {
         .about("A simulation of cosmwasm smart contract system")
         .arg(
             Arg::with_name("run")
-                .help("contract file that built by https://github.com/oraichain/smart-studio")
+                .help("contract file that built by https://github.com/oraichain/smart-studio.git")
                 .empty_values(false),
         )
         .arg(
