@@ -477,21 +477,23 @@ fn load_artifacts(file_path: &str) -> Result<Vec<(String, String)>, std::io::Err
     };
     let (parent_path, _) = file_path.split_at(seg);
 
-    let artifacts_folder = parent_path.to_string() + "/artifacts";
+    let artifacts_folder = std::path::Path::new(parent_path).join("artifacts");
 
-    for entry in std::fs::read_dir(artifacts_folder)? {
-        let dir = entry?;
-        if let Some(contract_addr) = dir.file_name().to_str() {
-            if let Some(file) = dir.path().to_str() {
-                file_paths.push((
-                    file.to_string() + "/" + contract_addr + ".wasm",
-                    contract_addr.to_string(),
-                ));
+    if artifacts_folder.is_dir() {
+        for entry in std::fs::read_dir(artifacts_folder)? {
+            let dir = entry?;
+            if let Some(contract_addr) = dir.file_name().to_str() {
+                if let Some(file) = dir.path().to_str() {
+                    file_paths.push((
+                        file.to_string() + "/" + contract_addr + ".wasm",
+                        contract_addr.to_string(),
+                    ));
+                }
             }
         }
     }
 
-    return Ok(file_paths);
+    Ok(file_paths)
 }
 
 fn prepare_command_line() -> bool {
