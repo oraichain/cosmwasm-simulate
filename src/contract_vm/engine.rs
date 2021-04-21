@@ -28,6 +28,7 @@ const DEFAULT_MEMORY_LIMIT: Size = Size::mebi(16);
 const DEFAULT_PRINT_DEBUG: bool = true;
 const DENOM: &str = "orai";
 const CHAIN_ID: &str = "Oraichain";
+const SCHEMA_FOLDER: &str = "schema";
 
 pub struct ContractInstance {
     pub module: Module,
@@ -102,6 +103,7 @@ impl ContractInstance {
         sender_addr: &str,
         sent_balances: Vec<Coin>,
     ) -> ContractInstance {
+        let alz = analyzer::from_json_schema(&file, SCHEMA_FOLDER);
         return ContractInstance {
             module: md,
             instance: inst,
@@ -121,7 +123,7 @@ impl ContractInstance {
                 sender: HumanAddr(sender_addr.to_string()),
                 sent_funds: sent_balances,
             },
-            analyzer: analyzer::Analyzer::default(),
+            analyzer: alz,
         };
     }
 

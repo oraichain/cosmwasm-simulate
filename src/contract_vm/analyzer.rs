@@ -52,7 +52,6 @@ pub struct Analyzer {
     pub map_of_struct: HashMap<String, HashMap<String, String>>,
     pub map_of_member: HashMap<String, HashMap<String, Vec<Member>>>,
     pub map_of_enum: HashMap<String, bool>,
-    pub is_analyzed: bool,
 }
 
 impl Analyzer {
@@ -62,7 +61,6 @@ impl Analyzer {
             map_of_struct: HashMap::new(),
             map_of_member: HashMap::new(),
             map_of_enum: HashMap::new(),
-            is_analyzed: false,
         };
     }
 
@@ -370,35 +368,75 @@ impl Analyzer {
         return true;
     }
 
-    //load jsonschema file, translate from json string to func:params...
-    pub fn try_load_json_schema(&mut self, dir: String) -> bool {
-        if self.is_analyzed {
-            return true;
+    pub fn show_message_type(&self, name: &str, members: &Vec<Member>) {
+        println!("{} {{", name.blue().bold());
+        for vcm in members {
+            let st = match self.map_of_struct.get_key_value(vcm.member_def.as_str()) {
+                Some(h) => h,
+                _ => {
+                    println!(
+                        "{}{} : {}",
+                        INDENT,
+                        vcm.member_name.blue().bold(),
+                        vcm.member_def.yellow()
+                    );
+                    continue;
+                }
+            };
+            //todo:need show all members by recursive invocation
+            println!(
+                "{}{} : {} {{ ",
+                INDENT,
+                vcm.member_name.blue().bold(),
+                vcm.member_def.yellow()
+            );
+            for members in st.1 {
+                println!(
+                    "{}{} : {}",
+                    INDENT.repeat(2),
+                    members.0.blue().bold(),
+                    members.1.yellow()
+                );
+            }
+            println!("{}}}", INDENT);
         }
+        println!("}}");
+    }
+
+    //load jsonschema file, translate from json string to func:params...
+    pub fn try_load_json_schema<P: AsRef<std::path::Path>>(&mut self, dir: P) -> bool {
         let all_json_file = match std::fs::read_dir(dir) {
             Err(_e) => return false,
             Ok(f) => f,
         };
+
         for file in all_json_file {
-            self.analyze_schema(file.unwrap().path().display().to_string());
+            if !self.analyze_schema(file.unwrap().path().display().to_string()) {
+                return false;
+            }
         }
-        self.is_analyzed = true;
+
         return true;
     }
+}
 
-    pub fn auto_load_json_schema(&mut self, file_path: &String) -> bool {
-        let seg = match file_path.rfind('/') {
-            None => return false,
-            Some(idx) => idx,
-        };
-        let (parent_path, _) = file_path.split_at(seg);
-        if cfg!(debug_assertions) {
-            println!("Auto loading json schema from {}/schema", parent_path);
-        } else {
-            println!("Auto loading json schema");
-        }
-        return self.try_load_json_schema(parent_path.to_string() + "/schema");
+pub fn from_json_schema(file_path: &String, schema_path: &str) -> Analyzer {
+    let mut analyzer = Analyzer::default();
+    let seg = match file_path.rfind('/') {
+        None => return analyzer,
+        Some(idx) => idx,
+    };
+    let (parent_path, _) = file_path.split_at(seg);
+    if cfg!(debug_assertions) {
+        println!(
+            "Auto loading json schema from {}/{}",
+            parent_path, schema_path
+        );
+    } else {
+        println!("Auto loading json schema");
     }
+    analyzer.try_load_json_schema(std::path::Path::new(parent_path).join(schema_path));
+    analyzer
 }
 
 pub fn load_data_from_file(path: &str) -> Result<Vec<u8>, String> {
