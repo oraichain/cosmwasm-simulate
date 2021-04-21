@@ -174,19 +174,24 @@ impl ContractInstance {
                 &self.env,
                 &self.message,
                 param.as_bytes(),
-            )
-            .unwrap();
+            );
 
             res = match result {
-                ContractResult::Ok(val) => {
-                    for msg in &val.attributes {
-                        ContractInstance::dump_result(&msg.key, msg.value.as_bytes());
+                Ok(response) => match response {
+                    ContractResult::Ok(val) => {
+                        for msg in &val.attributes {
+                            ContractInstance::dump_result(&msg.key, msg.value.as_bytes());
+                        }
+                        r#"{"message":"init succeeded"}"#.to_string()
                     }
-                    r#"{"message":"init succeeded"}"#.to_string()
-                }
-                ContractResult::Err(err) => {
-                    println!("{}", err.red());
-                    format!(r#"{{"error":"{}"}}"#, err)
+                    ContractResult::Err(err) => {
+                        println!("{}", err.red());
+                        format!(r#"{{"error":"{}"}}"#, err)
+                    }
+                },
+                Err(err) => {
+                    println!("{}", err.to_string().red());
+                    format!(r#"{{"error":"{}"}}"#, err.to_string())
                 }
             }
         } else if func_type == "handle" {
@@ -195,36 +200,47 @@ impl ContractInstance {
                 &self.env,
                 &self.message,
                 param.as_bytes(),
-            )
-            .unwrap();
+            );
 
             res = match result {
-                ContractResult::Ok(val) => {
-                    for msg in &val.attributes {
-                        ContractInstance::dump_result(&msg.key, msg.value.as_bytes());
+                Ok(response) => match response {
+                    ContractResult::Ok(val) => {
+                        for msg in &val.attributes {
+                            ContractInstance::dump_result(&msg.key, msg.value.as_bytes());
+                        }
+                        r#"{"message":"handle succeeded"}"#.to_string()
                     }
-                    r#"{"message":"handle succeeded"}"#.to_string()
+                    ContractResult::Err(err) => {
+                        println!("{}", err.red());
+                        format!(r#"{{"error":"{}"}}"#, err)
+                    }
+                },
+
+                Err(err) => {
+                    println!("{}", err.to_string().red());
+                    format!(r#"{{"error":"{}"}}"#, err.to_string())
                 }
-                ContractResult::Err(err) => {
-                    println!("{}", err.red());
-                    format!(r#"{{"error":"{}"}}"#, err)
-                }
-            }
+            };
         } else if func_type == "query" {
             // check param if it is custom, we will try to check for oracle special query to implement, otherwise forward
             // to virtual machine
-            let result =
-                cosmwasm_vm::call_query(&mut self.instance, &self.env, param.as_bytes()).unwrap();
+            let result = cosmwasm_vm::call_query(&mut self.instance, &self.env, param.as_bytes());
 
             res = match result {
-                ContractResult::Ok(val) => {
-                    ContractInstance::dump_result("query data", val.as_slice())
+                Ok(response) => match response {
+                    ContractResult::Ok(val) => {
+                        ContractInstance::dump_result("query data", val.as_slice())
+                    }
+                    ContractResult::Err(err) => {
+                        println!("{}", err.red());
+                        format!(r#"{{"error":"{}"}}"#, err)
+                    }
+                },
+                Err(err) => {
+                    println!("{}", err.to_string().red());
+                    format!(r#"{{"error":"{}"}}"#, err.to_string())
                 }
-                ContractResult::Err(err) => {
-                    println!("{}", err.red());
-                    format!(r#"{{"error":"{}"}}"#, err)
-                }
-            }
+            };
         }
 
         // default is no call

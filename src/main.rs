@@ -71,11 +71,15 @@ fn query_contract(address: String, msg: String) -> content::Json<String> {
     }
 }
 
-fn start_server() {
+fn start_server(port: u16) {
     // launch server
     thread::spawn(move || {
+        let mut config = rocket::config::Config::new(rocket::config::Environment::Production);
+        config.set_port(port);
+        // prevent multi thread access for easier sharing each cpu
+        config.set_workers(1);
         // launch Restful
-        rocket::ignite()
+        rocket::custom(config)
             .mount(
                 "/wasm",
                 routes![init_contract, handle_contract, query_contract],
@@ -604,9 +608,10 @@ fn prepare_command_line() -> bool {
         .arg(Arg::with_name("port").help("port of restful server"))
         .get_matches();
 
-    if let Some(port) = matches.value_of("port") {
-        std::env::set_var("ROCKET_PORT", port);
-        start_server();
+    if let Some(port_str) = matches.value_of("port") {
+        if let Ok(port) = port_str.parse() {
+            start_server(port);
+        }
     }
 
     if let Some(file) = matches.value_of("run") {
