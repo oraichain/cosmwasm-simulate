@@ -141,7 +141,7 @@ impl ContractInstance {
         }
     }
 
-    fn dump_result(key: &str, value: &[u8]) {
+    fn dump_result(key: &str, value: &[u8]) -> String {
         let mut value_str = match std::str::from_utf8(value) {
             Ok(result) => result.to_string(),
             _ => "".to_string(),
@@ -154,16 +154,20 @@ impl ContractInstance {
         }
 
         println!("{} = {}", key.blue().bold(), value_str.yellow());
+
+        value_str
     }
 
     pub fn call(&mut self, func_type: String, param: String) -> String {
-        println!("***************************call started***************************");
+        println!();
+        println!("___________________________call started___________________________");
         println!(
             "executing func [{}] , params is {}",
             func_type.green().bold(),
             param.yellow()
         );
         let gas_init = self.instance.get_gas_left();
+        let mut res = String::new();
         if func_type == "init" {
             let result = cosmwasm_vm::call_init::<_, _, _, Empty>(
                 &mut self.instance,
@@ -173,13 +177,17 @@ impl ContractInstance {
             )
             .unwrap();
 
-            match result {
+            res = match result {
                 ContractResult::Ok(val) => {
                     for msg in &val.attributes {
                         ContractInstance::dump_result(&msg.key, msg.value.as_bytes());
                     }
+                    r#"{"message":"init succeeded"}"#.to_string()
                 }
-                ContractResult::Err(err) => println!("{}", err.to_string().red()),
+                ContractResult::Err(err) => {
+                    println!("{}", err.red());
+                    format!(r#"{{"error":"{}"}}"#, err)
+                }
             }
         } else if func_type == "handle" {
             let result = cosmwasm_vm::call_handle::<_, _, _, Empty>(
@@ -190,14 +198,17 @@ impl ContractInstance {
             )
             .unwrap();
 
-            // println!("{:#?}", handle_result.unwrap());
-            match result {
+            res = match result {
                 ContractResult::Ok(val) => {
                     for msg in &val.attributes {
                         ContractInstance::dump_result(&msg.key, msg.value.as_bytes());
                     }
+                    r#"{"message":"handle succeeded"}"#.to_string()
                 }
-                ContractResult::Err(err) => println!("{}", err.to_string().red()),
+                ContractResult::Err(err) => {
+                    println!("{}", err.red());
+                    format!(r#"{{"error":"{}"}}"#, err)
+                }
             }
         } else if func_type == "query" {
             // check param if it is custom, we will try to check for oracle special query to implement, otherwise forward
@@ -205,18 +216,31 @@ impl ContractInstance {
             let result =
                 cosmwasm_vm::call_query(&mut self.instance, &self.env, param.as_bytes()).unwrap();
 
-            match result {
+            res = match result {
                 ContractResult::Ok(val) => {
-                    ContractInstance::dump_result("query data", val.as_slice());
+                    ContractInstance::dump_result("query data", val.as_slice())
                 }
-                ContractResult::Err(err) => println!("{}", err.to_string().red()),
+                ContractResult::Err(err) => {
+                    println!("{}", err.red());
+                    format!(r#"{{"error":"{}"}}"#, err)
+                }
             }
-        } else {
-            println!("wrong dispatcher call {}", func_type.green().bold());
         }
+
+        // default is no call
+        if res.is_empty() {
+            println!("wrong dispatcher call {}", func_type.green().bold());
+            res = format!(r#"{{"error":"wrong dispatcher call {}"}}"#, func_type);
+        }
+
         let gas_used = gas_init - self.instance.get_gas_left();
-        println!("Gas used   : {}", gas_used.to_string().yellow());
-        println!("***************************call finished***************************");
-        return "Execute Success".to_string();
+        println!(
+            "{}   : {}",
+            "gas used".blue().bold(),
+            gas_used.to_string().yellow()
+        );
+        println!("___________________________call finished___________________________");
+        println!();
+        return res;
     }
 }

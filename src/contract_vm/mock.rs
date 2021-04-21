@@ -140,10 +140,6 @@ pub enum SpecialQuery {
         headers: Option<Vec<String>>,
     },
 }
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct SpecialResponse {
-    data: String,
-}
 
 fn fetch(
     url: &String,

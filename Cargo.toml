@@ -22,6 +22,7 @@ colored = "2"
 cosmwasm-std = {version = "0.13.2"}
 cosmwasm-vm = {version = "0.13.2", features = ["iterator"]}
 lazy_mut = "0.1.0"
+rocket = {version = "0.4.7", default-features = false}
 rustyline = "8.0.0"
 rustyline-derive = "0.4.0"
 serde = {version = "1.0.103", default-features = false, features = ["derive", "alloc"]}

@@ -2,8 +2,10 @@ version: '3.3'
 services:
   simulate:
     image: rustlang/rust:nightly-slim
-    tty: true 
+    tty: true
     working_dir: /workspace
+    ports:
+      - 3000-9000
     volumes:
       - .registry_cache:/usr/local/cargo/registry:delegated
       - ./:/workspace

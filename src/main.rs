@@ -1,3 +1,6 @@
+#![feature(proc_macro_hygiene, decl_macro)]
+
+extern crate base64;
 extern crate clap;
 
 pub mod contract_vm;
@@ -8,6 +11,7 @@ use crate::contract_vm::engine::ContractInstance;
 use clap::{App, Arg};
 use colored::*;
 use cosmwasm_std::{QuerierResult, SystemError, SystemResult, WasmQuery};
+use rocket::response::content;
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
 use std::ops::Add;
@@ -23,6 +27,61 @@ extern crate lazy_mut;
 lazy_mut! {
     static mut EDITOR: TerminalEditor = TerminalEditor::new();
     static mut ENGINES : HashMap<String, ContractInstance> = HashMap::new();
+}
+
+#[macro_use]
+extern crate rocket;
+
+fn call_engine(contract_addr: &str, func_type: &str, msg: &str) -> Result<String, String> {
+    unsafe {
+        match ENGINES.get_mut(contract_addr) {
+            None => Err(format!("No such contract: {}", contract_addr)),
+            Some(engine) => match base64::decode(msg.as_bytes()) {
+                Ok(input) => match String::from_utf8(input) {
+                    Ok(param) => Ok(engine.call(func_type.to_owned(), param).to_owned()),
+                    Err(err) => Err(err.to_string()),
+                },
+                Err(err) => Err(err.to_string()),
+            },
+        }
+    }
+}
+
+#[get("/contract/<address>/init/<msg>")]
+fn init_contract(address: String, msg: String) -> content::Json<String> {
+    match call_engine(address.as_str(), "init", msg.as_str()) {
+        Ok(output) => content::Json(output),
+        Err(err) => content::Json(format!(r#"{{"error":"{}"}}"#, err)),
+    }
+}
+
+#[get("/contract/<address>/handle/<msg>")]
+fn handle_contract(address: String, msg: String) -> content::Json<String> {
+    match call_engine(address.as_str(), "handle", msg.as_str()) {
+        Ok(output) => content::Json(output),
+        Err(err) => content::Json(format!(r#"{{"error":"{}"}}"#, err)),
+    }
+}
+
+#[get("/contract/<address>/query/<msg>")]
+fn query_contract(address: String, msg: String) -> content::Json<String> {
+    match call_engine(address.as_str(), "query", msg.as_str()) {
+        Ok(output) => content::Json(output),
+        Err(err) => content::Json(format!(r#"{{"error":"{}"}}"#, err)),
+    }
+}
+
+fn start_server() {
+    // launch server
+    thread::spawn(move || {
+        // launch Restful
+        rocket::ignite()
+            .mount(
+                "/wasm",
+                routes![init_contract, handle_contract, query_contract],
+            )
+            .launch()
+    });
 }
 
 fn query_wasm(request: &WasmQuery) -> QuerierResult {
@@ -361,9 +420,7 @@ fn simulate_by_auto_analyze(
 
         println!("call {} - {}", call_type, json_msg);
 
-        let result = engine.call(call_type, json_msg);
-
-        println!("Call return msg [{}]", result.green().bold());
+        engine.call(call_type, json_msg);
     }
 }
 
@@ -398,8 +455,7 @@ fn simulate_by_json(
         }
 
         input_with_out_handle(&mut json_msg, true);
-        let result = engine.call(call_type, json_msg);
-        println!("Call return msg [{}]", result.green().bold());
+        engine.call(call_type, json_msg);
     }
 }
 
@@ -543,7 +599,13 @@ fn prepare_command_line() -> bool {
                 .help("contract file that built by https://github.com/oraichain/smart-studio.git")
                 .empty_values(false),
         )
+        .arg(Arg::with_name("port").help("port of restful server"))
         .get_matches();
+
+    if let Some(port) = matches.value_of("port") {
+        std::env::set_var("ROCKET_PORT", port);
+        start_server();
+    }
 
     if let Some(file) = matches.value_of("run") {
         // start load, check other file as well
