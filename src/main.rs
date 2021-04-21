@@ -302,9 +302,11 @@ fn simulate_by_auto_analyze(
     engine: &mut ContractInstance,
     sender_addr: &str,
 ) -> Result<(bool, String), String> {
-    // show info
-    engine.analyzer.dump_all_members();
-    engine.analyzer.dump_all_definitions();
+    // enable debug, show info
+    if cfg!(debug_assertions) {
+        engine.analyzer.dump_all_members();
+        engine.analyzer.dump_all_definitions();
+    }
 
     loop {
         println!(
