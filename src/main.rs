@@ -50,24 +50,24 @@ fn call_engine(contract_addr: &str, func_type: &str, msg: &str) -> Result<String
 #[get("/contract/<address>/init/<msg>")]
 fn init_contract(address: String, msg: String) -> content::Json<String> {
     match call_engine(address.as_str(), "init", msg.as_str()) {
-        Ok(output) => content::Json(output),
-        Err(err) => content::Json(format!(r#"{{"error":"{}"}}"#, err)),
+        Ok(data) => content::Json(format!(r#"{{"data": {}}}"#, data)),
+        Err(err) => content::Json(format!(r#"{{"error": "{}"}}"#, err)),
     }
 }
 
 #[get("/contract/<address>/handle/<msg>")]
 fn handle_contract(address: String, msg: String) -> content::Json<String> {
     match call_engine(address.as_str(), "handle", msg.as_str()) {
-        Ok(output) => content::Json(output),
-        Err(err) => content::Json(format!(r#"{{"error":"{}"}}"#, err)),
+        Ok(data) => content::Json(format!(r#"{{"data": {}}}"#, data)),
+        Err(err) => content::Json(format!(r#"{{"error": "{}"}}"#, err)),
     }
 }
 
 #[get("/contract/<address>/query/<msg>")]
 fn query_contract(address: String, msg: String) -> content::Json<String> {
     match call_engine(address.as_str(), "query", msg.as_str()) {
-        Ok(output) => content::Json(output),
-        Err(err) => content::Json(format!(r#"{{"error":"{}"}}"#, err)),
+        Ok(data) => content::Json(format!(r#"{{"data": {}}}"#, data)),
+        Err(err) => content::Json(format!(r#"{{"error": "{}"}}"#, err)),
     }
 }
 
