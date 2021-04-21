@@ -432,8 +432,6 @@ pub fn from_json_schema(file_path: &String, schema_path: &str) -> Analyzer {
             "Auto loading json schema from {}/{}",
             parent_path, schema_path
         );
-    } else {
-        println!("Auto loading json schema");
     }
     analyzer.try_load_json_schema(std::path::Path::new(parent_path).join(schema_path));
     analyzer
