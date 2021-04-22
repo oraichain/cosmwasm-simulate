@@ -79,9 +79,9 @@ fn start_server(port: u16) {
         // prevent multi thread access for easier sharing each cpu
         config.set_workers(1);
         if cfg!(debug_assertions) {
-            config.set_log_level(rocket::logger::LoggingLevel::Off);
-        } else {
             config.set_log_level(rocket::logger::LoggingLevel::Debug);
+        } else {
+            config.set_log_level(rocket::logger::LoggingLevel::Off);
         }
         // launch Restful
         rocket::custom(config)
