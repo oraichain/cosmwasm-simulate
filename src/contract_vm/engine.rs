@@ -68,7 +68,19 @@ impl ContractInstance {
         if cfg!(debug_assertions) {
             println!("Compiling code");
         }
-        let md = wasmer_runtime_core::compile_with(wasm.as_slice(), compiler().as_ref()).unwrap();
+
+        // compile then init instance wasmer
+        let md = match wasmer_runtime_core::compile_with(wasm.as_slice(), compiler().as_ref()) {
+            Err(e) => {
+                println!(
+                    "wasmer_runtime_core::compile_with return error {}",
+                    e.to_string().red()
+                );
+                return Err("Compile with code failed!".to_string());
+            }
+            Ok(m) => m,
+        };
+
         let inst_options = InstanceOptions {
             gas_limit: DEFAULT_GAS_LIMIT,
             /// Memory limit in bytes. Use a value that is divisible by the Wasm page size 65536, e.g. full MiBs.
