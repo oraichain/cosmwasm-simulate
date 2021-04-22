@@ -14,7 +14,6 @@ use cosmwasm_std::{Binary, QuerierResult, SystemError, SystemResult, WasmQuery};
 use rocket::response::content;
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
-use std::ops::Add;
 use std::path::Path;
 use std::{fs, sync, thread, time};
 
@@ -145,18 +144,18 @@ fn to_json_item(name: &String, type_name: &str, engine: &ContractInstance) -> St
         Some(v) => v,
     };
     let mut params = "\"".to_string();
-    params += name.as_str();
-    params += "\":";
+    params.push_str(name);
+    params.push_str("\":");
     if check_is_need_slash(mapped_type_name) {
-        params += "\"";
+        params.push('"');
         // clear enter and add slash to double quote
-        params += data.replace('\n', "").replace('"', "\\\"").as_str();
-        params += "\"";
+        params.push_str(data.replace('\n', "").replace('"', "\\\"").as_str());
+        params.push('"');
     } else {
-        params += data.as_str();
+        params.push_str(data.as_str());
     }
 
-    params += ",";
+    params.push(',');
     return params;
 }
 
@@ -170,15 +169,14 @@ fn input_type(mem_name: &String, type_name: &String, engine: &ContractInstance) 
         }
     };
     //todo:need show all members by recursive invocation
-
     let mut params = "\"".to_string();
-    params += mem_name;
-    params += "\":";
+    params.push_str(mem_name);
+    params.push_str("\":");
 
     if st.1.len() == 0 {
         input_with_out_handle(&mut params, true);
     } else {
-        params += "{";
+        params.push('{');
         for members in st.1 {
             println!(
                 "input {}[{} : {}]:",
@@ -186,14 +184,14 @@ fn input_type(mem_name: &String, type_name: &String, engine: &ContractInstance) 
                 members.0.blue().bold(),
                 members.1.yellow()
             );
-            params += to_json_item(&members.0, members.1, engine).as_str();
+            params.push_str(to_json_item(&members.0, members.1, engine).as_str());
         }
-        let (resv, _) = params.split_at(params.len() - 1);
-        params = resv.to_string();
-        params += "}";
+
+        params.pop();
+        params.push('}');
     }
 
-    params += ",";
+    params.push(',');
 
     return params;
 }
@@ -207,27 +205,25 @@ fn input_message(
     let mut final_msg: String = "{".to_string();
 
     if *is_enum {
-        final_msg = final_msg.add("\"");
-        final_msg = final_msg.add(name);
-        final_msg = final_msg.add("\":{");
+        final_msg.push('"');
+        final_msg.push_str(name);
+        final_msg.push_str("\":{");
     }
 
     for vcm in members {
-        final_msg = final_msg
-            .add(input_type(&vcm.member_name, &vcm.member_def.to_string(), engine).as_str());
+        final_msg
+            .push_str(input_type(&vcm.member_name, &vcm.member_def.to_string(), engine).as_str());
     }
     if members.len() > 0 {
-        let (resv, _) = final_msg.split_at(final_msg.len() - 1);
-        final_msg = resv.to_string();
-        final_msg = final_msg.add("}");
-    } else {
-        final_msg = final_msg.add("}");
+        final_msg.pop();
     }
+    final_msg.push('}');
 
     if *is_enum {
-        final_msg = final_msg.add("}");
+        final_msg.push('}');
     }
-    return final_msg;
+
+    final_msg
 }
 
 fn get_call_type() -> Option<(String, bool)> {
