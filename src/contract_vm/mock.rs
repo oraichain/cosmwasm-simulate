@@ -177,7 +177,7 @@ fn fetch(
         }
         Err(err) => SystemResult::Err(SystemError::InvalidRequest {
             error: err.to_string(),
-            request: Binary::from([]),
+            request: Binary::from(url.as_bytes()),
         }),
     }
 }
