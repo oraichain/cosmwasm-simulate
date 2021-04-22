@@ -10,7 +10,7 @@ use crate::contract_vm::editor::TerminalEditor;
 use crate::contract_vm::engine::ContractInstance;
 use clap::{App, Arg};
 use colored::*;
-use cosmwasm_std::{Binary, ContractResult, QuerierResult, SystemError, SystemResult, WasmQuery};
+use cosmwasm_std::{Binary, QuerierResult, SystemError, SystemResult, WasmQuery};
 use rocket::response::content;
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
@@ -110,19 +110,7 @@ fn query_wasm(request: &WasmQuery) -> QuerierResult {
 
                         // response can not unwrap, so it is empty
                         match result {
-                            Ok(response) => match response {
-                                ContractResult::Ok(val) => {
-                                    // make sure it is valid base64
-                                    let output = base64::encode(val.as_slice());
-                                    SystemResult::Ok(cosmwasm_std::to_binary(&output).into())
-                                }
-                                ContractResult::Err(err) => {
-                                    SystemResult::Err(SystemError::InvalidResponse {
-                                        error: err.to_string(),
-                                        response: Binary::from([]),
-                                    })
-                                }
-                            },
+                            Ok(response) => SystemResult::Ok(response),
                             Err(err) => SystemResult::Err(SystemError::InvalidResponse {
                                 error: err.to_string(),
                                 response: Binary::from([]),
