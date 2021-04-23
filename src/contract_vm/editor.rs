@@ -114,6 +114,7 @@ impl TerminalEditor {
         self.rl.add_history_entry(line)
     }
 
+    /// this is permanent
     pub fn add_input_history_entry(&mut self, line: String) {
         self.history_entries.push(line)
     }

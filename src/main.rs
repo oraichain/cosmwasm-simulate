@@ -641,6 +641,13 @@ fn prepare_command_line() -> bool {
         // simulate until break, start with first contract
         match receiver.recv() {
             Ok(contract_addr) => {
+                unsafe {
+                    // init the first suggested items
+                    EDITOR.add_input_history_entry(SENDER_ADDR.to_string());
+                    for k in ENGINES.keys() {
+                        EDITOR.add_input_history_entry(k.to_owned());
+                    }
+                }
                 return start_simulate_forever(contract_addr.as_str(), SENDER_ADDR);
             }
             Err(e) => {
