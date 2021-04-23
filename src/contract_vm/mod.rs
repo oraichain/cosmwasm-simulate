@@ -12,8 +12,14 @@ pub fn build_simulation(
     contract_addr: &str,
     sender_addr: &str,
     wasm_handler: WasmHandler,
+    replicated_log: &[(String, String)],
 ) -> Result<ContractInstance, String> {
-    let wasmer =
-        engine::ContractInstance::new_instance(wasmfile, contract_addr, sender_addr, wasm_handler);
+    let wasmer = engine::ContractInstance::new_instance(
+        wasmfile,
+        contract_addr,
+        sender_addr,
+        wasm_handler,
+        replicated_log,
+    );
     return wasmer;
 }

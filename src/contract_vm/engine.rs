@@ -26,6 +26,7 @@ const DEFAULT_GAS_LIMIT: u64 = 500_000_000_000_000;
 const COMPILE_GAS_LIMIT: u64 = 10_000_000_000;
 const DEFAULT_MEMORY_LIMIT: Size = Size::mebi(16);
 const DEFAULT_PRINT_DEBUG: bool = true;
+const DEFAULT_REPLICATED_LIMIT: usize = 1024;
 const DENOM: &str = "orai";
 const CHAIN_ID: &str = "Oraichain";
 const SCHEMA_FOLDER: &str = "schema";
@@ -37,6 +38,7 @@ pub struct ContractInstance {
     pub env: Env,
     pub message: MessageInfo,
     pub analyzer: analyzer::Analyzer,
+    pub replicated_log: Vec<(String, String)>,
 }
 
 fn compiler() -> Box<dyn Compiler> {
@@ -54,13 +56,14 @@ impl ContractInstance {
         contract_addr: &str,
         sender_addr: &str,
         query_wasm: WasmHandler,
+        replicated_log: &[(String, String)],
     ) -> Result<Self, String> {
-        let balances = vec![Coin {
+        let balances = &[Coin {
             denom: DENOM.to_string(),
             amount: Uint128::from(DEFAULT_CONTRACT_BALANCE),
         }];
 
-        let deps = mock::new_mock(balances.as_slice(), contract_addr, query_wasm);
+        let deps = mock::new_mock(balances, contract_addr, query_wasm);
         let wasm = match analyzer::load_data_from_file(wasm_file) {
             Err(e) => return Err(e),
             Ok(code) => code,
@@ -104,6 +107,7 @@ impl ContractInstance {
             contract_addr,
             sender_addr,
             balances,
+            replicated_log,
         ));
     }
 
@@ -113,10 +117,11 @@ impl ContractInstance {
         file: String,
         contract_addr: &str,
         sender_addr: &str,
-        sent_balances: Vec<Coin>,
+        sent_balances: &[Coin],
+        replicated_log: &[(String, String)],
     ) -> ContractInstance {
         let alz = analyzer::from_json_schema(&file, SCHEMA_FOLDER);
-        return ContractInstance {
+        let mut contract_inst = ContractInstance {
             module: md,
             instance: inst,
             wasm_file: file,
@@ -133,10 +138,17 @@ impl ContractInstance {
             },
             message: MessageInfo {
                 sender: HumanAddr(sender_addr.to_string()),
-                sent_funds: sent_balances,
+                sent_funds: sent_balances.to_vec(),
             },
             analyzer: alz,
+            // must copy, the reference may be removed from memory later
+            replicated_log: replicated_log.to_vec(),
         };
+
+        // first time do replication
+        contract_inst.do_replication();
+
+        contract_inst
     }
 
     pub fn show_module_info(&self) {
@@ -170,6 +182,121 @@ impl ContractInstance {
         value_str
     }
 
+    fn do_replication(&mut self) -> bool {
+        for (func_type, param) in &self.replicated_log {
+            if func_type.eq("init") {
+                if cosmwasm_vm::call_init::<_, _, _, Empty>(
+                    &mut self.instance,
+                    &self.env,
+                    &self.message,
+                    param.as_bytes(),
+                )
+                .is_err()
+                {
+                    return false;
+                }
+            } else if func_type.eq("handle") {
+                if cosmwasm_vm::call_handle::<_, _, _, Empty>(
+                    &mut self.instance,
+                    &self.env,
+                    &self.message,
+                    param.as_bytes(),
+                )
+                .is_err()
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    pub fn init(&mut self, param: String) -> String {
+        let result = cosmwasm_vm::call_init::<_, _, _, Empty>(
+            &mut self.instance,
+            &self.env,
+            &self.message,
+            param.as_bytes(),
+        );
+
+        match result {
+            Ok(response) => match response {
+                ContractResult::Ok(val) => {
+                    for msg in &val.attributes {
+                        ContractInstance::dump_result(&msg.key, msg.value.as_bytes());
+                    }
+                    if self.replicated_log.len() < DEFAULT_REPLICATED_LIMIT {
+                        self.replicated_log.push(("init".to_string(), param));
+                    }
+                    r#"{"message":"init succeeded"}"#.to_string()
+                }
+                ContractResult::Err(err) => {
+                    println!("{}", err.red());
+                    format!(r#"{{"error":"{}"}}"#, err)
+                }
+            },
+            Err(err) => {
+                println!("{}", err.to_string().red());
+                format!(r#"{{"error":"{}"}}"#, err.to_string())
+            }
+        }
+    }
+
+    pub fn handle(&mut self, param: String) -> String {
+        let result = cosmwasm_vm::call_handle::<_, _, _, Empty>(
+            &mut self.instance,
+            &self.env,
+            &self.message,
+            param.as_bytes(),
+        );
+
+        match result {
+            Ok(response) => match response {
+                ContractResult::Ok(val) => {
+                    for msg in &val.attributes {
+                        ContractInstance::dump_result(&msg.key, msg.value.as_bytes());
+                    }
+                    if self.replicated_log.len() < DEFAULT_REPLICATED_LIMIT {
+                        self.replicated_log.push(("handle".to_string(), param));
+                    }
+                    r#"{"message":"handle succeeded"}"#.to_string()
+                }
+                ContractResult::Err(err) => {
+                    println!("{}", err.red());
+                    format!(r#"{{"error":"{}"}}"#, err)
+                }
+            },
+
+            Err(err) => {
+                println!("{}", err.to_string().red());
+                format!(r#"{{"error":"{}"}}"#, err.to_string())
+            }
+        }
+    }
+
+    pub fn query(&mut self, param: String) -> String {
+        // check param if it is custom, we will try to check for oracle special query to implement, otherwise forward
+        // to virtual machine
+        let result = cosmwasm_vm::call_query(&mut self.instance, &self.env, param.as_bytes());
+
+        match result {
+            Ok(response) => match response {
+                ContractResult::Ok(val) => {
+                    ContractInstance::dump_result("query data", val.as_slice())
+                }
+                ContractResult::Err(err) => {
+                    println!("{}", err.red());
+                    format!(r#"{{"error":"{}"}}"#, err)
+                }
+            },
+            Err(err) => {
+                println!("{}", err.to_string().red());
+                format!(r#"{{"error":"{}"}}"#, err.to_string())
+            }
+        }
+    }
+
     pub fn call(&mut self, func_type: String, param: String) -> String {
         println!();
         println!("___________________________call started___________________________");
@@ -179,87 +306,15 @@ impl ContractInstance {
             param.yellow()
         );
         let gas_init = self.instance.get_gas_left();
-        let mut res = String::new();
-        if func_type == "init" {
-            let result = cosmwasm_vm::call_init::<_, _, _, Empty>(
-                &mut self.instance,
-                &self.env,
-                &self.message,
-                param.as_bytes(),
-            );
-
-            res = match result {
-                Ok(response) => match response {
-                    ContractResult::Ok(val) => {
-                        for msg in &val.attributes {
-                            ContractInstance::dump_result(&msg.key, msg.value.as_bytes());
-                        }
-                        r#"{"message":"init succeeded"}"#.to_string()
-                    }
-                    ContractResult::Err(err) => {
-                        println!("{}", err.red());
-                        format!(r#"{{"error":"{}"}}"#, err)
-                    }
-                },
-                Err(err) => {
-                    println!("{}", err.to_string().red());
-                    format!(r#"{{"error":"{}"}}"#, err.to_string())
-                }
+        let res = match func_type.as_str() {
+            "init" => self.init(param),
+            "handle" => self.handle(param),
+            "query" => self.query(param),
+            _ => {
+                println!("wrong dispatcher call {}", func_type.green().bold());
+                format!(r#"{{"error":"wrong dispatcher call {}"}}"#, func_type)
             }
-        } else if func_type == "handle" {
-            let result = cosmwasm_vm::call_handle::<_, _, _, Empty>(
-                &mut self.instance,
-                &self.env,
-                &self.message,
-                param.as_bytes(),
-            );
-
-            res = match result {
-                Ok(response) => match response {
-                    ContractResult::Ok(val) => {
-                        for msg in &val.attributes {
-                            ContractInstance::dump_result(&msg.key, msg.value.as_bytes());
-                        }
-                        r#"{"message":"handle succeeded"}"#.to_string()
-                    }
-                    ContractResult::Err(err) => {
-                        println!("{}", err.red());
-                        format!(r#"{{"error":"{}"}}"#, err)
-                    }
-                },
-
-                Err(err) => {
-                    println!("{}", err.to_string().red());
-                    format!(r#"{{"error":"{}"}}"#, err.to_string())
-                }
-            };
-        } else if func_type == "query" {
-            // check param if it is custom, we will try to check for oracle special query to implement, otherwise forward
-            // to virtual machine
-            let result = cosmwasm_vm::call_query(&mut self.instance, &self.env, param.as_bytes());
-
-            res = match result {
-                Ok(response) => match response {
-                    ContractResult::Ok(val) => {
-                        ContractInstance::dump_result("query data", val.as_slice())
-                    }
-                    ContractResult::Err(err) => {
-                        println!("{}", err.red());
-                        format!(r#"{{"error":"{}"}}"#, err)
-                    }
-                },
-                Err(err) => {
-                    println!("{}", err.to_string().red());
-                    format!(r#"{{"error":"{}"}}"#, err.to_string())
-                }
-            };
-        }
-
-        // default is no call
-        if res.is_empty() {
-            println!("wrong dispatcher call {}", func_type.green().bold());
-            res = format!(r#"{{"error":"wrong dispatcher call {}"}}"#, func_type);
-        }
+        };
 
         let gas_used = gas_init - self.instance.get_gas_left();
         println!(

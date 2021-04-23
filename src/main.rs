@@ -577,21 +577,29 @@ fn watch_and_update(
                 modified_files[index] = modified_time;
             }
 
-            match contract_vm::build_simulation(
-                wasm_file.as_str(),
-                contract_addr.as_str(),
-                sender_addr,
-                query_wasm,
-            ) {
-                Err(e) => {
-                    println!("error occurred during install contract: {}", e.red());
-                    return Err(Error::new(ErrorKind::Other, e));
-                }
-                Ok(instance) => unsafe {
-                    // println!("installed contract: {}", contract_addr.blue().bold());
-                    ENGINES.insert(contract_addr.to_string(), instance);
-                },
-            };
+            unsafe {
+                // try to do replicated logs to remain states for this engine
+                let replicated_log = match ENGINES.get(contract_addr) {
+                    Some(c) => c.replicated_log.as_slice(),
+                    None => &[],
+                };
+                match contract_vm::build_simulation(
+                    wasm_file.as_str(),
+                    contract_addr.as_str(),
+                    sender_addr,
+                    query_wasm,
+                    replicated_log,
+                ) {
+                    Err(e) => {
+                        println!("error occurred during install contract: {}", e.red());
+                        return Err(Error::new(ErrorKind::Other, e));
+                    }
+                    Ok(instance) => {
+                        // println!("installed contract: {}", contract_addr.blue().bold());
+                        ENGINES.insert(contract_addr.to_string(), instance);
+                    }
+                };
+            }
         }
 
         // init all contracts first time, send the first contract to notify
