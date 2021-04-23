@@ -1,34 +1,18 @@
 use std::borrow::Cow::{self, Borrowed, Owned};
 
 use colored::*;
-use rustyline::completion::{Completer, FilenameCompleter, Pair};
-use rustyline::error::ReadlineError;
 use rustyline::highlight::{Highlighter, MatchingBracketHighlighter};
 use rustyline::hint::{Hinter, HistoryHinter};
 use rustyline::validate::{self, MatchingBracketValidator, Validator};
 use rustyline::{CompletionType, Config, Context, Editor};
-use rustyline_derive::Helper;
+use rustyline_derive::{Completer, Helper};
 
-#[derive(Helper)]
+#[derive(Completer, Helper)]
 pub struct MyHelper {
-    completer: FilenameCompleter,
     highlighter: MatchingBracketHighlighter,
     validator: MatchingBracketValidator,
     hinter: HistoryHinter,
     colored_prompt: String,
-}
-
-impl Completer for MyHelper {
-    type Candidate = Pair;
-
-    fn complete(
-        &self,
-        line: &str,
-        pos: usize,
-        ctx: &Context<'_>,
-    ) -> Result<(usize, Vec<Pair>), ReadlineError> {
-        self.completer.complete(line, pos, ctx)
-    }
 }
 
 impl Hinter for MyHelper {
@@ -91,7 +75,6 @@ impl TerminalEditor {
             .build();
 
         let h = MyHelper {
-            completer: FilenameCompleter::new(),
             highlighter: MatchingBracketHighlighter::new(),
             hinter: HistoryHinter {},
             colored_prompt: "".to_owned(),
