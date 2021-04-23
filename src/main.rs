@@ -595,8 +595,9 @@ fn watch_and_update(
                     continue;
                 }
                 modified_files[index] = modified_time;
-                // sleep 1 second incase it noti modified change before completed build version
-                thread::sleep(time::Duration::from_millis(1000));
+
+                // sleep 100 miliseconds incase it notifies modification before build version is completed
+                thread::sleep(time::Duration::from_millis(100));
             }
 
             let mut instance = match contract_vm::build_simulation(
@@ -632,7 +633,8 @@ fn watch_and_update(
             sender.send(wasm_files[0].1.to_owned()).unwrap();
         }
 
-        thread::sleep(time::Duration::from_millis(100));
+        // watch again every second
+        thread::sleep(time::Duration::from_millis(1000));
     }
 }
 
