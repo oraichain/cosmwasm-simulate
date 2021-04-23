@@ -17,6 +17,7 @@ panic = 'abort'
 
 [dependencies]
 base64 = "0.13.0"
+itertools = "0.10.0"
 clap = "2.33.3"
 colored = "2"
 cosmwasm-std = {version = "0.13.2"}

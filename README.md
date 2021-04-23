@@ -19,7 +19,7 @@ cosmwasm-simulate is developed for Cosmwasm Smart Contract system, the main func
 ```shell script
 docker-compose up -d
 docker-compose exec simulate bash
-RUSTFLAGS="-C link-arg=-s" cargo build --release
+RUSTFLAGS="-C link-arg=-s" RUSTC_WRAPPER=sccache cargo build --release
 # output is at target/release/cosmwasm-simulate
 apt update -y && apt install upx -y
 upx --best --lzma target/release/cosmwasm-simulate
@@ -41,7 +41,7 @@ wget https://github.com/CosmWasm/cosmwasm-examples/raw/master/erc20/contract.was
 - Run cosmwasm-simulate like:
 
 ```shell script
-cosmwasm-simulate  /workspace/artifacts/contract.wasm
+DEBUG=true cosmwasm-simulate  /workspace/artifacts/contract.wasm port
 ```
 
 - Command like follow:

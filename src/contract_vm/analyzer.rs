@@ -76,12 +76,8 @@ impl Analyzer {
             Some(arr) => arr.to_vec(),
         };
 
-        mapper.insert(mem_name.clone(), Vec::new());
-
-        let vec_mem = match mapper.get_mut(mem_name) {
-            None => return false,
-            Some(vecm) => vecm,
-        };
+        // create new member vector
+        let mut vec_mem = Vec::new();
 
         if req_arr.len() == 0 {
             let type_name = match properties.get("$ref") {
@@ -152,6 +148,9 @@ impl Analyzer {
                 vec_mem.insert(vec_mem.len(), member);
             }
         }
+        // sorted by ASC
+        vec_mem.sort_by(|m1, m2| m1.member_name.cmp(&m2.member_name));
+        mapper.insert(mem_name.to_owned(), vec_mem);
         return true;
     }
 

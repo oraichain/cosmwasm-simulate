@@ -26,10 +26,11 @@ const DEFAULT_GAS_LIMIT: u64 = 500_000_000_000_000;
 const COMPILE_GAS_LIMIT: u64 = 10_000_000_000;
 const DEFAULT_MEMORY_LIMIT: Size = Size::mebi(16);
 const DEFAULT_PRINT_DEBUG: bool = true;
-const DEFAULT_REPLICATED_LIMIT: usize = 1024;
 const DENOM: &str = "orai";
 const CHAIN_ID: &str = "Oraichain";
 const SCHEMA_FOLDER: &str = "schema";
+
+pub type CallBackHandler = fn(String, (String, String));
 
 pub struct ContractInstance {
     pub module: Module,
@@ -38,7 +39,7 @@ pub struct ContractInstance {
     pub env: Env,
     pub message: MessageInfo,
     pub analyzer: analyzer::Analyzer,
-    pub replicated_log: Vec<(String, String)>,
+    pub handle_callback: Option<CallBackHandler>,
 }
 
 fn compiler() -> Box<dyn Compiler> {
@@ -56,7 +57,6 @@ impl ContractInstance {
         contract_addr: &str,
         sender_addr: &str,
         query_wasm: WasmHandler,
-        replicated_log: &[(String, String)],
     ) -> Result<Self, String> {
         let balances = &[Coin {
             denom: DENOM.to_string(),
@@ -107,7 +107,6 @@ impl ContractInstance {
             contract_addr,
             sender_addr,
             balances,
-            replicated_log,
         ));
     }
 
@@ -118,10 +117,9 @@ impl ContractInstance {
         contract_addr: &str,
         sender_addr: &str,
         sent_balances: &[Coin],
-        replicated_log: &[(String, String)],
     ) -> ContractInstance {
         let alz = analyzer::from_json_schema(&file, SCHEMA_FOLDER);
-        let mut contract_inst = ContractInstance {
+        ContractInstance {
             module: md,
             instance: inst,
             wasm_file: file,
@@ -141,14 +139,8 @@ impl ContractInstance {
                 sent_funds: sent_balances.to_vec(),
             },
             analyzer: alz,
-            // must copy, the reference may be removed from memory later
-            replicated_log: replicated_log.to_vec(),
-        };
-
-        // first time do replication
-        contract_inst.do_replication();
-
-        contract_inst
+            handle_callback: None,
+        }
     }
 
     pub fn show_module_info(&self) {
@@ -182,8 +174,12 @@ impl ContractInstance {
         value_str
     }
 
-    fn do_replication(&mut self) -> bool {
-        for (func_type, param) in &self.replicated_log {
+    pub fn set_handle_callback(&mut self, callback: CallBackHandler) {
+        self.handle_callback = Some(callback);
+    }
+
+    pub fn do_replication(&mut self, replicated_log: &[(String, String)]) -> bool {
+        for (func_type, param) in replicated_log {
             if func_type.eq("init") {
                 if cosmwasm_vm::call_init::<_, _, _, Empty>(
                     &mut self.instance,
@@ -226,9 +222,14 @@ impl ContractInstance {
                     for msg in &val.attributes {
                         ContractInstance::dump_result(&msg.key, msg.value.as_bytes());
                     }
-                    if self.replicated_log.len() < DEFAULT_REPLICATED_LIMIT {
-                        self.replicated_log.push(("init".to_string(), param));
+
+                    if let Some(callback) = self.handle_callback {
+                        callback(
+                            self.env.contract.address.to_string(),
+                            ("init".to_string(), param),
+                        )
                     }
+
                     r#"{"message":"init succeeded"}"#.to_string()
                 }
                 ContractResult::Err(err) => {
@@ -257,9 +258,14 @@ impl ContractInstance {
                     for msg in &val.attributes {
                         ContractInstance::dump_result(&msg.key, msg.value.as_bytes());
                     }
-                    if self.replicated_log.len() < DEFAULT_REPLICATED_LIMIT {
-                        self.replicated_log.push(("handle".to_string(), param));
+
+                    if let Some(callback) = self.handle_callback {
+                        callback(
+                            self.env.contract.address.to_string(),
+                            ("handle".to_string(), param),
+                        )
                     }
+
                     r#"{"message":"handle succeeded"}"#.to_string()
                 }
                 ContractResult::Err(err) => {

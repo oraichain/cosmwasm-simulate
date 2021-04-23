@@ -11,6 +11,7 @@ use crate::contract_vm::engine::ContractInstance;
 use clap::{App, Arg};
 use colored::*;
 use cosmwasm_std::{Binary, QuerierResult, SystemError, SystemResult, WasmQuery};
+use itertools::sorted;
 use rocket::response::content;
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
@@ -20,12 +21,14 @@ use std::{fs, sync, thread, time};
 // default const is 'static lifetime
 const CONTRACT_FOLDER: &str = "contract";
 const SENDER_ADDR: &str = "fake_sender_addr";
+const DEFAULT_REPLICATED_LIMIT: usize = 1024;
 
 #[macro_use]
 extern crate lazy_mut;
 lazy_mut! {
     static mut EDITOR: TerminalEditor = TerminalEditor::new();
     static mut ENGINES : HashMap<String, ContractInstance> = HashMap::new();
+    static mut REPLICATED_LOGS: HashMap<String, Vec<(String, String)>> = HashMap::new();
 }
 
 #[macro_use]
@@ -77,11 +80,9 @@ fn start_server(port: u16) {
         config.set_port(port);
         // prevent multi thread access for easier sharing each cpu
         config.set_workers(1);
-        if cfg!(debug_assertions) {
-            config.set_log_level(rocket::logger::LoggingLevel::Debug);
-        } else {
-            config.set_log_level(rocket::logger::LoggingLevel::Off);
-        }
+
+        config.set_log_level(rocket::logger::LoggingLevel::Off);
+
         // launch Restful
         rocket::custom(config)
             .mount(
@@ -177,6 +178,7 @@ fn input_type(mem_name: &String, type_name: &String, engine: &ContractInstance) 
         input_with_out_handle(&mut params, true);
     } else {
         params.push('{');
+        // member is default sorted
         for members in st.1 {
             println!(
                 "input {}[{} : {}]:",
@@ -281,7 +283,7 @@ fn get_call_type() -> Option<(String, bool)> {
         unsafe {
             EDITOR.clear_history();
 
-            for k in ENGINES.keys() {
+            for k in sorted(ENGINES.keys()) {
                 if first {
                     first = false;
                 } else {
@@ -353,7 +355,7 @@ fn simulate_by_auto_analyze(
             unsafe {
                 EDITOR.clear_history();
 
-                for k in engine.analyzer.map_of_member.keys() {
+                for k in sorted(engine.analyzer.map_of_member.keys()) {
                     if first {
                         first = false;
                     } else {
@@ -395,7 +397,7 @@ fn simulate_by_auto_analyze(
 
                 unsafe {
                     EDITOR.clear_history();
-                    for k in msg_type.keys() {
+                    for k in sorted(msg_type.keys()) {
                         if first {
                             first = false;
                         } else {
@@ -475,15 +477,19 @@ fn simulate_by_json(
 
 fn start_simulate(contract_addr: &str, sender_addr: &str) -> Result<(bool, String), String> {
     unsafe {
-        let engine = ENGINES.get_mut(contract_addr).unwrap();
-        // enable debug
-        if cfg!(debug_assertions) {
-            engine.show_module_info();
-        }
-        if engine.analyzer.map_of_member.is_empty() {
-            return simulate_by_json(engine, sender_addr);
-        } else {
-            return simulate_by_auto_analyze(engine, sender_addr);
+        match ENGINES.get_mut(contract_addr) {
+            Some(engine) => {
+                // enable debug
+                if cfg!(debug_assertions) {
+                    engine.show_module_info();
+                }
+                if engine.analyzer.map_of_member.is_empty() {
+                    simulate_by_json(engine, sender_addr)
+                } else {
+                    simulate_by_auto_analyze(engine, sender_addr)
+                }
+            }
+            None => Err(format!("No engine found: {}", contract_addr)),
         }
     }
 }
@@ -566,6 +572,20 @@ fn watch_and_update(
     // do not copy, use reference when loop
     let len = wasm_files.len();
     let mut modified_files: Vec<time::SystemTime> = vec![time::SystemTime::now(); len];
+    // this callback is live long enough
+    let handle_callback = |contract_addr: String, log: (String, String)| unsafe {
+        if let Some(logs) = REPLICATED_LOGS.get_mut(&contract_addr) {
+            if logs.len() < DEFAULT_REPLICATED_LIMIT {
+                logs.push(log);
+            }
+        }
+    };
+
+    // trigger init lazy mut
+    unsafe {
+        REPLICATED_LOGS.init_once();
+    }
+
     loop {
         for index in 0..len {
             let (wasm_file, contract_addr) = &wasm_files[index];
@@ -577,28 +597,31 @@ fn watch_and_update(
                 modified_files[index] = modified_time;
             }
 
+            let mut instance = match contract_vm::build_simulation(
+                wasm_file.as_str(),
+                contract_addr.as_str(),
+                sender_addr,
+                query_wasm,
+            ) {
+                Err(e) => {
+                    println!("error occurred during install contract: {}", e.red());
+                    return Err(Error::new(ErrorKind::Other, e));
+                }
+                Ok(s) => s,
+            };
+
             unsafe {
-                // try to do replicated logs to remain states for this engine
-                let replicated_log = match ENGINES.get(contract_addr) {
-                    Some(c) => c.replicated_log.as_slice(),
-                    None => &[],
-                };
-                match contract_vm::build_simulation(
-                    wasm_file.as_str(),
-                    contract_addr.as_str(),
-                    sender_addr,
-                    query_wasm,
-                    replicated_log,
-                ) {
-                    Err(e) => {
-                        println!("error occurred during install contract: {}", e.red());
-                        return Err(Error::new(ErrorKind::Other, e));
-                    }
-                    Ok(instance) => {
-                        // println!("installed contract: {}", contract_addr.blue().bold());
-                        ENGINES.insert(contract_addr.to_string(), instance);
-                    }
-                };
+                if let Some(replicated_log) = REPLICATED_LOGS.get(contract_addr) {
+                    instance.do_replication(replicated_log.as_slice());
+                } else {
+                    REPLICATED_LOGS.insert(contract_addr.to_owned(), vec![]);
+                }
+
+                // callback handler when do replicated log
+                instance.set_handle_callback(handle_callback);
+
+                // now move instance to HashMap, and no borrow
+                ENGINES.insert(contract_addr.to_owned(), instance);
             }
         }
 
@@ -626,6 +649,15 @@ fn prepare_command_line() -> bool {
 
     if let Some(port_str) = matches.value_of("port") {
         if let Ok(port) = port_str.parse() {
+            let debug = match std::env::var("DEBUG") {
+                Ok(s) => s.ne("false"),
+                _ => false,
+            };
+
+            if debug {
+                println!("🚀 Rest API Base URL: http://0.0.0.0:{}/wasm", port);
+            }
+
             start_server(port);
         }
     }
