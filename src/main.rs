@@ -595,6 +595,8 @@ fn watch_and_update(
                     continue;
                 }
                 modified_files[index] = modified_time;
+                // sleep 1 second incase it noti modified change before completed build version
+                thread::sleep(time::Duration::from_millis(1000));
             }
 
             let mut instance = match contract_vm::build_simulation(
