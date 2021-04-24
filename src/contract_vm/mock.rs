@@ -1,13 +1,20 @@
 extern crate base64;
 use cosmwasm_std::testing::MockQuerierCustomHandlerResult;
+use std::convert::TryInto;
+use std::ops::{Bound, RangeBounds};
+
 use cosmwasm_std::{
     from_slice, to_binary, to_vec, Binary, Coin, ContractResult, CustomQuery, Empty, HumanAddr,
     Querier as StdQuerier, QuerierResult, QueryRequest, SystemError, SystemResult,
 };
-use cosmwasm_vm::testing::{MockApi, MockStorage};
-use cosmwasm_vm::{Backend, BackendError, BackendResult, GasInfo, Querier};
+
+use cosmwasm_std::{Order, KV};
+
+use cosmwasm_vm::testing::MockApi;
+use cosmwasm_vm::{Backend, BackendError, BackendResult, GasInfo, Querier, Storage};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
 
 use crate::contract_vm::querier::{CustomHandler, StdMockQuerier, WasmHandler};
@@ -19,6 +26,9 @@ const GAS_COST_QUERY_FLAT: u64 = 100_000;
 const GAS_COST_QUERY_REQUEST_MULTIPLIER: u64 = 0;
 /// Gas per reponse byte
 const GAS_COST_QUERY_RESPONSE_MULTIPLIER: u64 = 100;
+
+const GAS_COST_LAST_ITERATION: u64 = 37;
+const GAS_COST_RANGE: u64 = 11;
 
 /// MockQuerier holds an immutable table of bank balances
 /// TODO: also allow querying contracts
@@ -44,16 +54,6 @@ impl<C: CustomQuery + DeserializeOwned> MockQuerier<C> {
         balance: Vec<Coin>,
     ) -> Option<Vec<Coin>> {
         self.querier.update_balance(addr, balance)
-    }
-
-    #[cfg(feature = "staking")]
-    pub fn update_staking(
-        &mut self,
-        denom: &str,
-        validators: &[cosmwasm_std::Validator],
-        delegations: &[cosmwasm_std::FullDelegation],
-    ) {
-        self.querier.update_staking(denom, validators, delegations);
     }
 
     pub fn with_custom_handler<CH: 'static>(mut self, handler: CH) -> Self
@@ -195,10 +195,141 @@ pub fn custom_query_execute(query: &SpecialQuery) -> MockQuerierCustomHandlerRes
     }
 }
 
+#[derive(Default, Debug, Clone)]
+pub struct Iter {
+    data: Vec<KV>,
+    position: usize,
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct MockStorage {
+    pub data: BTreeMap<Vec<u8>, Vec<u8>>,
+    pub iterators: HashMap<u32, Iter>,
+}
+
+impl MockStorage {
+    pub fn new() -> Self {
+        MockStorage::default()
+    }
+
+    pub fn all(&mut self, iterator_id: u32) -> BackendResult<Vec<KV>> {
+        let mut out: Vec<KV> = Vec::new();
+        let mut total = GasInfo::free();
+        loop {
+            let (result, info) = self.next(iterator_id);
+            total += info;
+            match result {
+                Err(err) => return (Err(err), total),
+                Ok(ok) => {
+                    if let Some(v) = ok {
+                        out.push(v);
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+        (Ok(out), total)
+    }
+}
+
+impl Storage for MockStorage {
+    fn get(&self, key: &[u8]) -> BackendResult<Option<Vec<u8>>> {
+        let gas_info = GasInfo::with_externally_used(key.len() as u64);
+        (Ok(self.data.get(key).cloned()), gas_info)
+    }
+
+    fn scan(
+        &mut self,
+        start: Option<&[u8]>,
+        end: Option<&[u8]>,
+        order: Order,
+    ) -> BackendResult<u32> {
+        let gas_info = GasInfo::with_externally_used(GAS_COST_RANGE);
+        let bounds = range_bounds(start, end);
+
+        let values: Vec<KV> = match (bounds.start_bound(), bounds.end_bound()) {
+            // BTreeMap.range panics if range is start > end.
+            // However, this cases represent just empty range and we treat it as such.
+            (Bound::Included(start), Bound::Excluded(end)) if start > end => Vec::new(),
+            _ => match order {
+                Order::Ascending => self.data.range(bounds).map(clone_item).collect(),
+                Order::Descending => self.data.range(bounds).rev().map(clone_item).collect(),
+            },
+        };
+
+        let last_id: u32 = self
+            .iterators
+            .len()
+            .try_into()
+            .expect("Found more iterator IDs than supported");
+        let new_id = last_id + 1;
+        let iter = Iter {
+            data: values,
+            position: 0,
+        };
+        self.iterators.insert(new_id, iter);
+
+        (Ok(new_id), gas_info)
+    }
+
+    fn next(&mut self, iterator_id: u32) -> BackendResult<Option<KV>> {
+        let iterator = match self.iterators.get_mut(&iterator_id) {
+            Some(i) => i,
+            None => {
+                return (
+                    Err(BackendError::iterator_does_not_exist(iterator_id)),
+                    GasInfo::free(),
+                )
+            }
+        };
+
+        let (value, gas_info): (Option<KV>, GasInfo) = if iterator.data.len() > iterator.position {
+            let item = iterator.data[iterator.position].clone();
+            iterator.position += 1;
+            let gas_cost = (item.0.len() + item.1.len()) as u64;
+            (Some(item), GasInfo::with_cost(gas_cost))
+        } else {
+            (None, GasInfo::with_externally_used(GAS_COST_LAST_ITERATION))
+        };
+
+        (Ok(value), gas_info)
+    }
+
+    fn set(&mut self, key: &[u8], value: &[u8]) -> BackendResult<()> {
+        self.data.insert(key.to_vec(), value.to_vec());
+        let gas_info = GasInfo::with_externally_used((key.len() + value.len()) as u64);
+        (Ok(()), gas_info)
+    }
+
+    fn remove(&mut self, key: &[u8]) -> BackendResult<()> {
+        self.data.remove(key);
+        let gas_info = GasInfo::with_externally_used(key.len() as u64);
+        (Ok(()), gas_info)
+    }
+}
+
+fn range_bounds(start: Option<&[u8]>, end: Option<&[u8]>) -> impl RangeBounds<Vec<u8>> {
+    (
+        start.map_or(Bound::Unbounded, |x| Bound::Included(x.to_vec())),
+        end.map_or(Bound::Unbounded, |x| Bound::Excluded(x.to_vec())),
+    )
+}
+
+/// The BTreeMap specific key-value pair reference type, as returned by BTreeMap<Vec<u8>, T>::range.
+/// This is internal as it can change any time if the map implementation is swapped out.
+type BTreeMapPairRef<'a, T = Vec<u8>> = (&'a Vec<u8>, &'a T);
+
+fn clone_item<T: Clone>(item_ref: BTreeMapPairRef<T>) -> KV<T> {
+    let (key, value) = item_ref;
+    (key.clone(), value.clone())
+}
+
 pub fn new_mock(
     contract_balance: &[Coin],
     contract_addr: &str,
     wasm_handler: WasmHandler,
+    storage: MockStorage,
 ) -> Backend<MockApi, MockStorage, MockQuerier<SpecialQuery>> {
     let human_addr = HumanAddr::from(contract_addr);
     // update custom_querier
@@ -209,7 +340,7 @@ pub fn new_mock(
     );
     Backend {
         api: MockApi::default(),
-        storage: MockStorage::default(),
+        storage,
         querier: custom_querier,
     }
 }

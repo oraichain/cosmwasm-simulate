@@ -8,6 +8,8 @@ extern crate clap;
 use crate::contract_vm::analyzer::{Member, INDENT};
 use crate::contract_vm::editor::TerminalEditor;
 use crate::contract_vm::engine::ContractInstance;
+use crate::contract_vm::mock::MockStorage;
+use crate::contract_vm::querier::WasmHandler;
 use clap::{App, Arg};
 use colored::*;
 use cosmwasm_std::{Binary, QuerierResult, SystemError, SystemResult, WasmQuery};
@@ -28,7 +30,6 @@ extern crate lazy_mut;
 lazy_mut! {
     static mut EDITOR: TerminalEditor = TerminalEditor::new();
     static mut ENGINES : HashMap<String, ContractInstance> = HashMap::new();
-    static mut REPLICATED_LOGS: HashMap<String, Vec<(String, String)>> = HashMap::new();
 }
 
 #[macro_use]
@@ -570,6 +571,29 @@ fn load_artifacts(file_path: &str) -> Result<Vec<(String, String)>, Error> {
     Ok(file_paths)
 }
 
+fn insert_engine(
+    wasm_file: &str,
+    contract_addr: &str,
+    sender_addr: &str,
+    wasm_handler: WasmHandler,
+    storage: &MockStorage,
+) {
+    match ContractInstance::new_instance(
+        wasm_file,
+        contract_addr,
+        sender_addr,
+        wasm_handler,
+        storage,
+    ) {
+        Err(e) => {
+            println!("error occurred during install contract: {}", e.red());
+        }
+        Ok(engine) => {
+            unsafe { ENGINES.insert(contract_addr.to_owned(), engine) };
+        }
+    };
+}
+
 fn watch_and_update(
     sender: &sync::mpsc::Sender<String>,
     sender_addr: &str,
@@ -578,19 +602,6 @@ fn watch_and_update(
     // do not copy, use reference when loop
     let len = wasm_files.len();
     let mut modified_files: Vec<time::SystemTime> = vec![time::SystemTime::now(); len];
-    // this callback is live long enough
-    let handle_callback = |contract_addr: String, log: (String, String)| unsafe {
-        if let Some(logs) = REPLICATED_LOGS.get_mut(&contract_addr) {
-            if logs.len() < DEFAULT_REPLICATED_LIMIT {
-                logs.push(log);
-            }
-        }
-    };
-
-    // trigger init lazy mut
-    unsafe {
-        REPLICATED_LOGS.init_once();
-    }
 
     loop {
         for index in 0..len {
@@ -601,36 +612,37 @@ fn watch_and_update(
                     continue;
                 }
                 modified_files[index] = modified_time;
-
-                // sleep 100 miliseconds incase it notifies modification before build version is completed
-                thread::sleep(time::Duration::from_millis(100));
             }
 
-            let mut instance = match contract_vm::build_simulation(
-                wasm_file.as_str(),
-                contract_addr.as_str(),
-                sender_addr,
-                query_wasm,
-            ) {
-                Err(e) => {
-                    println!("error occurred during install contract: {}", e.red());
-                    return Err(Error::new(ErrorKind::Other, e));
-                }
-                Ok(s) => s,
-            };
-
             unsafe {
-                if let Some(replicated_log) = REPLICATED_LOGS.get(contract_addr) {
-                    instance.do_replication(replicated_log.as_slice());
-                } else {
-                    REPLICATED_LOGS.insert(contract_addr.to_owned(), vec![]);
-                }
-
-                // callback handler when do replicated log
-                instance.set_handle_callback(handle_callback);
-
-                // now move instance to HashMap, and no borrow
-                ENGINES.insert(contract_addr.to_owned(), instance);
+                match ENGINES.get_mut(contract_addr) {
+                    Some(eng) => {
+                        // sleep 100 miliseconds incase it notifies modification before build version is completed
+                        thread::sleep(time::Duration::from_millis(100));
+                        // callback query directly from storage to copy it
+                        eng.instance
+                            .with_storage(|storage| {
+                                insert_engine(
+                                    wasm_file,
+                                    contract_addr,
+                                    sender_addr,
+                                    query_wasm,
+                                    storage,
+                                );
+                                Ok(())
+                            })
+                            .unwrap();
+                    }
+                    None => {
+                        insert_engine(
+                            wasm_file,
+                            contract_addr,
+                            sender_addr,
+                            query_wasm,
+                            &contract_vm::mock::MockStorage::default(),
+                        );
+                    }
+                };
             }
         }
 
@@ -682,6 +694,11 @@ fn prepare_command_line() -> bool {
         let (sender, receiver) = sync::mpsc::channel();
         // Spawn off an expensive computation
         thread::spawn(move || {
+            // trigger init lazy mut
+            unsafe {
+                ENGINES.init_once();
+            }
+
             if let Ok(ret) = watch_and_update(&sender, SENDER_ADDR, &wasm_files) {
                 return ret;
             }
