@@ -180,6 +180,7 @@ impl Analyzer {
     }
 
     pub fn dump_all_definitions(&self) {
+        println!();
         // if we make sure about key existed, we can access directly without guarding
         if self.map_of_basetype.len() > 0 {
             println!("{}", "Base Type :".green().bold());
@@ -191,6 +192,7 @@ impl Analyzer {
                     self.map_of_basetype[k].yellow()
                 );
             }
+            println!();
         }
         if self.map_of_struct.len() > 0 {
             println!("{}", "Struct Type :".green().bold());
@@ -206,10 +208,12 @@ impl Analyzer {
                 }
                 println!("{}}}", INDENT);
             }
+            println!();
         }
     }
 
     pub fn dump_all_members(&self) {
+        println!();
         for b in &self.map_of_member {
             let is_enum = self.map_of_enum.get(b.0).unwrap_or(&false);
             let mut tab = "";
@@ -237,6 +241,8 @@ impl Analyzer {
             if *is_enum {
                 println!("}}")
             }
+
+            println!();
         }
     }
 

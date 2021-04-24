@@ -131,17 +131,21 @@ fn input_with_out_handle(input_data: &mut String, store_input: bool) -> bool {
 
 fn check_is_need_slash(name: &str) -> bool {
     // Binary is base64 string input
-    if name.starts_with("string") || name.starts_with("Binary") {
+    if name.eq("string") {
         return true;
     }
     return false;
 }
 
 fn to_json_item(name: &String, type_name: &str, engine: &ContractInstance) -> String {
+    let strip_type_name = match type_name.strip_suffix('?') {
+        Some(s) => s,
+        None => type_name,
+    };
     let mut data: String = String::new();
     input_with_out_handle(&mut data, true);
-    let mapped_type_name = match engine.analyzer.map_of_basetype.get(type_name) {
-        None => type_name,
+    let mapped_type_name = match engine.analyzer.map_of_basetype.get(strip_type_name) {
+        None => strip_type_name,
         Some(v) => v,
     };
     let mut params = "\"".to_string();
@@ -188,8 +192,10 @@ fn input_type(mem_name: &String, type_name: &String, engine: &ContractInstance) 
             );
             params.push_str(to_json_item(&members.0, members.1, engine).as_str());
         }
-
-        params.pop();
+        // remove last , character
+        if st.1.len() > 0 {
+            params.pop();
+        }
         params.push('}');
     }
 
