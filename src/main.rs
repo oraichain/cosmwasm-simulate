@@ -1,9 +1,9 @@
 #![feature(proc_macro_hygiene, decl_macro)]
 
+pub mod contract_vm;
+
 extern crate base64;
 extern crate clap;
-
-pub mod contract_vm;
 
 use crate::contract_vm::analyzer::{Member, INDENT};
 use crate::contract_vm::editor::TerminalEditor;
@@ -80,7 +80,6 @@ fn start_server(port: u16) {
         config.set_port(port);
         // prevent multi thread access for easier sharing each cpu
         config.set_workers(1);
-
         config.set_log_level(rocket::logger::LoggingLevel::Off);
 
         // launch Restful
