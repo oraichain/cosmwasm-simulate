@@ -1,6 +1,7 @@
 //analyzer for json schema file
 
 use colored::*;
+use itertools::sorted;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
@@ -17,23 +18,33 @@ fn get_member_name_from_definition(item: &str) -> &str {
     }
 }
 
-fn get_type_name_from_definition(item: &serde_json::Value) -> &serde_json::Value {
-    match item.get("type") {
+fn get_type_name_from_definition(item: &serde_json::Value) -> (&serde_json::Value, bool) {
+    let mut optional = false;
+    let def = match item.get("type") {
         None => {
             // check if all of type
             let item = match item.get("allOf") {
-                None => item,
+                // also check anyOf
+                None => match item.get("anyOf") {
+                    None => item,
+                    Some(v) => {
+                        optional = true;
+                        v.as_array().unwrap().first().unwrap()
+                    }
+                },
                 Some(v) => v.as_array().unwrap().first().unwrap(),
             };
 
             match item.get("$ref") {
                 // default is Null
-                None => &serde_json::Value::Null,
+                None => item,
                 Some(rf) => rf,
             }
         }
         Some(t) => t,
-    }
+    };
+
+    (def, optional)
 }
 
 //Todo: analyze more detail from json schema file
@@ -77,7 +88,10 @@ impl Analyzer {
         };
 
         // create new member vector
-        let mut vec_mem = Vec::new();
+        mapper.insert(mem_name.to_owned(), Vec::new());
+
+        // surely vec_mem is defined after above insertion
+        let vec_mem = mapper.get_mut(mem_name).unwrap();
 
         if req_arr.len() == 0 {
             let type_name = match properties.get("$ref") {
@@ -107,65 +121,82 @@ impl Analyzer {
                     None => continue,
                     Some(ps) => ps,
                 };
-                let type_name = get_type_name_from_definition(proper);
+                let (type_name, optional) = get_type_name_from_definition(proper);
                 let name = match type_name.as_str() {
                     None => continue,
                     Some(s) => s,
                 };
-                let mut member: Member = Member {
-                    member_name: req_str.to_string(),
-                    member_def: "".to_string(),
-                };
 
                 // not support input array of Definition, it is difficult to process
-                if name == "array" {
-                    let item = match proper.get("items") {
-                        None => continue,
-                        Some(it) => match it.get("$ref") {
-                            // get type directly
-                            None => match it.get("type") {
-                                None => continue,
-                                Some(t) => match t.as_str() {
+                let mut member_def = match name {
+                    "array" => {
+                        let item = match proper.get("items") {
+                            None => continue,
+                            Some(it) => match it.get("$ref") {
+                                // get type directly
+                                None => match it.get("type") {
+                                    None => continue,
+                                    Some(t) => match t.as_str() {
+                                        None => continue,
+                                        Some(s) => s,
+                                    },
+                                },
+                                Some(rf) => match rf.as_str() {
                                     None => continue,
                                     Some(s) => s,
                                 },
                             },
-                            Some(rf) => match rf.as_str() {
-                                None => continue,
-                                Some(s) => s,
-                            },
-                        },
-                    };
-                    // array types
-                    member.member_def = format!("[{}]", get_member_name_from_definition(item));
-                } else if name.starts_with("#/definitions") {
-                    // struct
-                    member.member_def = get_member_name_from_definition(name).to_string();
-                } else {
-                    //base type
-                    member.member_def = name.to_string();
+                        };
+                        // array types
+                        format!("[{}]", get_member_name_from_definition(item))
+                    }
+                    _ => {
+                        //base type
+                        match name.starts_with("#/definitions") {
+                            // struct
+                            true => get_member_name_from_definition(name).to_string(),
+                            false => name.to_string(),
+                        }
+                    }
+                };
+
+                // optional type
+                if optional {
+                    member_def.push('?');
                 }
+
+                let member = Member {
+                    member_name: req_str.to_string(),
+                    member_def,
+                };
+
                 vec_mem.insert(vec_mem.len(), member);
             }
         }
         // sorted by ASC
         vec_mem.sort_by(|m1, m2| m1.member_name.cmp(&m2.member_name));
-        mapper.insert(mem_name.to_owned(), vec_mem);
+
         return true;
     }
 
     pub fn dump_all_definitions(&self) {
+        // if we make sure about key existed, we can access directly without guarding
         if self.map_of_basetype.len() > 0 {
             println!("{}", "Base Type :".green().bold());
-            for b in &self.map_of_basetype {
-                println!("{}{} => {}", INDENT, b.0.blue().bold(), b.1.yellow());
+            for k in sorted(self.map_of_basetype.keys()) {
+                println!(
+                    "{}{} => {}",
+                    INDENT,
+                    k.blue().bold(),
+                    self.map_of_basetype[k].yellow()
+                );
             }
         }
         if self.map_of_struct.len() > 0 {
             println!("{}", "Struct Type :".green().bold());
-            for s in &self.map_of_struct {
-                println!("{}{} {{", INDENT, s.0.blue().bold());
-                for member in s.1 {
+            for k in sorted(self.map_of_struct.keys()) {
+                println!("{}{} {{", INDENT, k.blue().bold());
+                for member in sorted(&self.map_of_struct[k]) {
                     println!(
                         "{}{} : {}",
                         INDENT.repeat(2),
@@ -214,14 +245,13 @@ impl Analyzer {
         base_type: &mut HashMap<String, String>,
         struct_type: &mut HashMap<String, HashMap<String, String>>,
     ) -> bool {
-        let mut vec_struct: HashMap<String, String> = HashMap::new();
         let def_arr = match def.as_object() {
             None => return false,
             Some(da) => da,
         };
 
         for d in def_arr {
-            let type_def = get_type_name_from_definition(d.1);
+            let (type_def, _) = get_type_name_from_definition(d.1);
 
             if type_def == "object" {
                 //struct
@@ -235,9 +265,10 @@ impl Analyzer {
                     Some(pm) => pm,
                 };
 
+                let mut vec_struct: HashMap<String, String> = HashMap::new();
                 for p in prop_map {
                     // recursive parse
-                    let type_str = get_type_name_from_definition(p.1);
+                    let (type_str, optional) = get_type_name_from_definition(p.1);
 
                     let def_str = match type_str.as_array() {
                         None => type_str.as_str().unwrap_or_default(),
@@ -245,10 +276,14 @@ impl Analyzer {
                     };
 
                     // check if is definition type
-                    let short_name = get_member_name_from_definition(def_str);
-                    vec_struct.insert(p.0.to_string(), short_name.to_string());
+                    let mut short_name = get_member_name_from_definition(def_str).to_string();
+                    if optional {
+                        short_name.push('?');
+                    }
+                    vec_struct.insert(p.0.to_string(), short_name);
                 }
-                struct_type.insert(d.0.to_string(), vec_struct.clone());
+
+                struct_type.insert(d.0.to_string(), vec_struct);
             } else {
                 //base type
                 let def = match type_def.as_str() {

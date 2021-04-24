@@ -130,7 +130,8 @@ fn input_with_out_handle(input_data: &mut String, store_input: bool) -> bool {
 }
 
 fn check_is_need_slash(name: &str) -> bool {
-    if name == "string" {
+    // Binary is base64 string input
+    if name.starts_with("string") || name.starts_with("Binary") {
         return true;
     }
     return false;
