@@ -19,11 +19,12 @@ cosmwasm-simulate is developed for Cosmwasm Smart Contract system, the main func
 ```shell script
 docker-compose up -d
 docker-compose exec simulate bash
+apt update -y
 # needed if install sccache
 apt install libssl-dev pkg-config -y && cargo install sccache
 RUSTFLAGS="-C link-arg=-s" RUSTC_WRAPPER=sccache cargo build --release
 # output is at target/release/cosmwasm-simulate
-apt update -y && apt install upx -y
+apt install upx -y
 upx --best --lzma target/release/cosmwasm-simulate
 
 # suggestion
