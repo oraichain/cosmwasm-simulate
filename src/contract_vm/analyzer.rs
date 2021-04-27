@@ -18,7 +18,7 @@ fn get_member_name_from_definition(item: &str) -> &str {
     }
 }
 
-fn get_type_name_from_definition(item: &serde_json::Value) -> (&serde_json::Value, bool) {
+fn get_type_name_from_definition(item: &serde_json::Value) -> (&str, bool) {
     let mut optional = false;
     let def = match item.get("type") {
         None => {
@@ -44,7 +44,19 @@ fn get_type_name_from_definition(item: &serde_json::Value) -> (&serde_json::Valu
         Some(t) => t,
     };
 
-    (def, optional)
+    let type_name = match def.as_str() {
+        Some(t) => t,
+        None => match def.as_array() {
+            // [type, null] for example
+            Some(a) => {
+                optional = true;
+                a[0].as_str().unwrap_or_default()
+            }
+            None => "",
+        },
+    };
+
+    (type_name, optional)
 }
 
 //Todo: analyze more detail from json schema file
@@ -77,13 +89,13 @@ impl Analyzer {
 
     pub fn get_member(req_str: &String, proper: &serde_json::Value) -> Option<Member> {
         let (type_name, optional) = get_type_name_from_definition(proper);
-        let name = match type_name.as_str() {
-            None => return None,
-            Some(s) => s,
-        };
+
+        if type_name.is_empty() {
+            return None;
+        }
 
         // not support input array of Definition, it is difficult to process
-        let mut member_def = match name {
+        let mut member_def = match type_name {
             "array" => {
                 let item = match proper.get("items") {
                     None => return None,
@@ -107,10 +119,10 @@ impl Analyzer {
             }
             _ => {
                 //base type
-                match name.starts_with("#/definitions") {
+                match type_name.starts_with("#/definitions") {
                     // struct
-                    true => get_member_name_from_definition(name).to_string(),
-                    false => name.to_string(),
+                    true => get_member_name_from_definition(type_name).to_string(),
+                    false => type_name.to_string(),
                 }
             }
         };
@@ -168,6 +180,7 @@ impl Analyzer {
             // if require at least 1 param, surely properties has more than 1 item
             for (req_str, proper) in properties.as_object().unwrap() {
                 if let Some(member) = Analyzer::get_member(req_str, proper) {
+                    println!("param: {}", req_str);
                     vec_mem.insert(vec_mem.len(), member);
                 }
             }
@@ -280,11 +293,7 @@ impl Analyzer {
                 struct_type.insert(d.0.to_string(), vec_struct);
             } else {
                 //base type
-                let def = match type_def.as_str() {
-                    None => continue,
-                    Some(s) => s,
-                };
-                base_type.insert("".to_string() + d.0, def.to_string());
+                base_type.insert("".to_string() + d.0, type_def.to_string());
             }
         }
         return true;
