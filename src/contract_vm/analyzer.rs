@@ -180,7 +180,6 @@ impl Analyzer {
             // if require at least 1 param, surely properties has more than 1 item
             for (req_str, proper) in properties.as_object().unwrap() {
                 if let Some(member) = Analyzer::get_member(req_str, proper) {
-                    println!("param: {}", req_str);
                     vec_mem.insert(vec_mem.len(), member);
                 }
             }
