@@ -21,7 +21,6 @@ use std::path::Path;
 use std::{fs, sync, thread, time};
 
 // default const is 'static lifetime
-const CONTRACT_FOLDER: &str = "contract";
 const SENDER_ADDR: &str = "fake_sender_addr";
 const DEFAULT_REPLICATED_LIMIT: usize = 1024;
 
@@ -526,7 +525,10 @@ fn start_simulate_forever(contract_addr: &str, sender_addr: &str) -> bool {
     }
 }
 
-fn load_artifacts(file_path: &str) -> Result<Vec<(String, String)>, Error> {
+fn load_artifacts(
+    file_path: &str,
+    contract_folder: Option<&str>,
+) -> Result<Vec<(String, String)>, Error> {
     // check file
     if !file_path.ends_with(".wasm") {
         println!(
@@ -549,19 +551,21 @@ fn load_artifacts(file_path: &str) -> Result<Vec<(String, String)>, Error> {
     };
     let (parent_path, _) = file_path.split_at(seg);
 
-    let artifacts_folder = std::path::Path::new(parent_path).join(CONTRACT_FOLDER);
+    if let Some(folder) = contract_folder {
+        let artifacts_folder = std::path::Path::new(parent_path).join(folder);
 
-    if artifacts_folder.is_dir() {
-        for entry in std::fs::read_dir(artifacts_folder)? {
-            let dir = entry?;
-            if let Some(contract_addr) = dir.file_name().to_str() {
-                if let Some(file) = dir.path().to_str() {
-                    let wasm_file = Path::new(file).join(format!("{}.wasm", contract_addr));
-                    if wasm_file.is_file() {
-                        file_paths.push((
-                            wasm_file.to_str().unwrap().to_string(),
-                            contract_addr.to_string(),
-                        ));
+        if artifacts_folder.is_dir() {
+            for entry in std::fs::read_dir(artifacts_folder)? {
+                let dir = entry?;
+                if let Some(contract_addr) = dir.file_name().to_str() {
+                    if let Some(file) = dir.path().to_str() {
+                        let wasm_file = Path::new(file).join(format!("{}.wasm", contract_addr));
+                        if wasm_file.is_file() {
+                            file_paths.push((
+                                wasm_file.to_str().unwrap().to_string(),
+                                contract_addr.to_string(),
+                            ));
+                        }
                     }
                 }
             }
@@ -666,6 +670,9 @@ fn prepare_command_line() -> bool {
                 .help("contract file that built by https://github.com/oraichain/smart-studio.git")
                 .empty_values(false),
         )
+        .arg(Arg::from_usage(
+            "-c, --contract=[CONTRACT_FOLDER] 'Other contract folder'",
+        ))
         .arg(Arg::with_name("port").help("port of restful server"))
         .get_matches();
 
@@ -686,7 +693,7 @@ fn prepare_command_line() -> bool {
 
     if let Some(file) = matches.value_of("run") {
         // start load, check other file as well
-        let wasm_files = match load_artifacts(file) {
+        let wasm_files = match load_artifacts(file, matches.value_of("contract")) {
             Err(_) => vec![],
             Ok(s) => s,
         };

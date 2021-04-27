@@ -75,6 +75,59 @@ impl Analyzer {
         };
     }
 
+    pub fn get_member(req_str: &String, proper: &serde_json::Value) -> Option<Member> {
+        let (type_name, optional) = get_type_name_from_definition(proper);
+        let name = match type_name.as_str() {
+            None => return None,
+            Some(s) => s,
+        };
+
+        // not support input array of Definition, it is difficult to process
+        let mut member_def = match name {
+            "array" => {
+                let item = match proper.get("items") {
+                    None => return None,
+                    Some(it) => match it.get("$ref") {
+                        // get type directly
+                        None => match it.get("type") {
+                            None => return None,
+                            Some(t) => match t.as_str() {
+                                None => return None,
+                                Some(s) => s,
+                            },
+                        },
+                        Some(rf) => match rf.as_str() {
+                            None => return None,
+                            Some(s) => s,
+                        },
+                    },
+                };
+                // array types
+                format!("[{}]", get_member_name_from_definition(item))
+            }
+            _ => {
+                //base type
+                match name.starts_with("#/definitions") {
+                    // struct
+                    true => get_member_name_from_definition(name).to_string(),
+                    false => name.to_string(),
+                }
+            }
+        };
+
+        // optional type
+        if optional {
+            member_def.push('?');
+        }
+
+        let member = Member {
+            member_name: req_str.to_owned(),
+            member_def,
+        };
+
+        Some(member)
+    }
+
     pub fn build_member(
         required: &serde_json::Value,
         properties: &serde_json::Value,
@@ -112,65 +165,11 @@ impl Analyzer {
                 }
             };
         } else {
-            for req in req_arr {
-                let req_str = match req.as_str() {
-                    None => continue,
-                    Some(s) => s,
-                };
-                let proper = match properties.get(req_str) {
-                    None => continue,
-                    Some(ps) => ps,
-                };
-                let (type_name, optional) = get_type_name_from_definition(proper);
-                let name = match type_name.as_str() {
-                    None => continue,
-                    Some(s) => s,
-                };
-
-                // not support input array of Definition, it is difficult to process
-                let mut member_def = match name {
-                    "array" => {
-                        let item = match proper.get("items") {
-                            None => continue,
-                            Some(it) => match it.get("$ref") {
-                                // get type directly
-                                None => match it.get("type") {
-                                    None => continue,
-                                    Some(t) => match t.as_str() {
-                                        None => continue,
-                                        Some(s) => s,
-                                    },
-                                },
-                                Some(rf) => match rf.as_str() {
-                                    None => continue,
-                                    Some(s) => s,
-                                },
-                            },
-                        };
-                        // array types
-                        format!("[{}]", get_member_name_from_definition(item))
-                    }
-                    _ => {
-                        //base type
-                        match name.starts_with("#/definitions") {
-                            // struct
-                            true => get_member_name_from_definition(name).to_string(),
-                            false => name.to_string(),
-                        }
-                    }
-                };
-
-                // optional type
-                if optional {
-                    member_def.push('?');
+            // if require at least 1 param, surely properties has more than 1 item
+            for (req_str, proper) in properties.as_object().unwrap() {
+                if let Some(member) = Analyzer::get_member(req_str, proper) {
+                    vec_mem.insert(vec_mem.len(), member);
                 }
-
-                let member = Member {
-                    member_name: req_str.to_string(),
-                    member_def,
-                };
-
-                vec_mem.insert(vec_mem.len(), member);
             }
         }
         // sorted by ASC
@@ -272,21 +271,10 @@ impl Analyzer {
                 };
 
                 let mut vec_struct: HashMap<String, String> = HashMap::new();
-                for p in prop_map {
-                    // recursive parse
-                    let (type_str, optional) = get_type_name_from_definition(p.1);
-
-                    let def_str = match type_str.as_array() {
-                        None => type_str.as_str().unwrap_or_default(),
-                        Some(s) => s.first().unwrap().as_str().unwrap_or_default(),
-                    };
-
-                    // check if is definition type
-                    let mut short_name = get_member_name_from_definition(def_str).to_string();
-                    if optional {
-                        short_name.push('?');
+                for (req_str, proper) in prop_map {
+                    if let Some(member) = Analyzer::get_member(req_str, proper) {
+                        vec_struct.insert(member.member_name, member.member_def);
                     }
-                    vec_struct.insert(p.0.to_string(), short_name);
                 }
 
                 struct_type.insert(d.0.to_string(), vec_struct);
