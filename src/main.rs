@@ -138,12 +138,18 @@ fn check_is_need_slash(name: &str) -> bool {
 }
 
 fn to_json_item(name: &String, type_name: &str, engine: &ContractInstance) -> String {
-    let strip_type_name = match type_name.strip_suffix('?') {
-        Some(s) => s,
-        None => type_name,
+    let (strip_type_name, optional) = match type_name.strip_suffix('?') {
+        Some(s) => (s, true),
+        None => (type_name, false),
     };
     let mut data: String = String::new();
     input_with_out_handle(&mut data, true);
+
+    // do not append optional when empty
+    if data.is_empty() && optional {
+        return String::new();
+    }
+
     let mapped_type_name = match engine.analyzer.map_of_basetype.get(strip_type_name) {
         None => strip_type_name,
         Some(v) => v,
