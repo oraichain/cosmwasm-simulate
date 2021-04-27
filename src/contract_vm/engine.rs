@@ -162,7 +162,7 @@ impl ContractInstance {
         }
     }
 
-    fn dump_result(key: &str, value: &[u8]) -> String {
+    fn dump_result(key: &str, value: &[u8], len: usize) -> String {
         let mut value_str = match std::str::from_utf8(value) {
             Ok(result) => result.to_string(),
             _ => "".to_string(),
@@ -174,12 +174,17 @@ impl ContractInstance {
             }
         }
 
-        println!("{} = {}", key.blue().bold(), value_str.yellow());
+        println!(
+            "{:<len$} = {}",
+            key.blue().bold(),
+            value_str.yellow(),
+            len = len
+        );
 
         value_str
     }
 
-    pub fn init(&mut self, param: String) -> String {
+    pub fn init(&mut self, param: &str) -> String {
         let result = cosmwasm_vm::call_init::<_, _, _, Empty>(
             &mut self.instance,
             &self.env,
@@ -190,8 +195,14 @@ impl ContractInstance {
         match result {
             Ok(response) => match response {
                 ContractResult::Ok(val) => {
+                    let len = val
+                        .attributes
+                        .iter()
+                        .map(|k| k.key.len())
+                        .max()
+                        .unwrap_or_default();
                     for msg in &val.attributes {
-                        ContractInstance::dump_result(&msg.key, msg.value.as_bytes());
+                        ContractInstance::dump_result(&msg.key, msg.value.as_bytes(), len);
                     }
 
                     r#"{"message":"init succeeded"}"#.to_string()
@@ -208,7 +219,7 @@ impl ContractInstance {
         }
     }
 
-    pub fn handle(&mut self, param: String) -> String {
+    pub fn handle(&mut self, param: &str) -> String {
         let result = cosmwasm_vm::call_handle::<_, _, _, Empty>(
             &mut self.instance,
             &self.env,
@@ -219,8 +230,14 @@ impl ContractInstance {
         match result {
             Ok(response) => match response {
                 ContractResult::Ok(val) => {
+                    let len = val
+                        .attributes
+                        .iter()
+                        .map(|k| k.key.len())
+                        .max()
+                        .unwrap_or_default();
                     for msg in &val.attributes {
-                        ContractInstance::dump_result(&msg.key, msg.value.as_bytes());
+                        ContractInstance::dump_result(&msg.key, msg.value.as_bytes(), len);
                     }
 
                     r#"{"message":"handle succeeded"}"#.to_string()
@@ -238,7 +255,7 @@ impl ContractInstance {
         }
     }
 
-    pub fn query(&mut self, param: String) -> String {
+    pub fn query(&mut self, param: &str) -> String {
         // check param if it is custom, we will try to check for oracle special query to implement, otherwise forward
         // to virtual machine
         let result = cosmwasm_vm::call_query(&mut self.instance, &self.env, param.as_bytes());
@@ -246,7 +263,7 @@ impl ContractInstance {
         match result {
             Ok(response) => match response {
                 ContractResult::Ok(val) => {
-                    ContractInstance::dump_result("query data", val.as_slice())
+                    ContractInstance::dump_result("query data", val.as_slice(), 10)
                 }
                 ContractResult::Err(err) => {
                     println!("{}", err.red());
@@ -260,7 +277,7 @@ impl ContractInstance {
         }
     }
 
-    pub fn call(&mut self, func_type: String, param: String) -> String {
+    pub fn call(&mut self, func_type: &str, param: &str) -> String {
         println!();
         println!("___________________________call started___________________________");
         println!(
@@ -269,7 +286,7 @@ impl ContractInstance {
             param.yellow()
         );
         let gas_init = self.instance.get_gas_left();
-        let res = match func_type.as_str() {
+        let res = match func_type {
             "init" => self.init(param),
             "handle" => self.handle(param),
             "query" => self.query(param),

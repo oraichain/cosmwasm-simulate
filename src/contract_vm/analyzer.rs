@@ -52,7 +52,7 @@ fn get_type_name_from_definition(item: &serde_json::Value) -> (&str, bool) {
                 optional = true;
                 a[0].as_str().unwrap_or_default()
             }
-            None => "",
+            None => "any", // can be any of .... and very complex to show like {key1:value1} | {key2:value2}
         },
     };
 
@@ -195,12 +195,19 @@ impl Analyzer {
         // if we make sure about key existed, we can access directly without guarding
         if self.map_of_basetype.len() > 0 {
             println!("{}", "Base Type :".green().bold());
+            let max_key_len = self
+                .map_of_basetype
+                .keys()
+                .map(|k| k.len())
+                .max()
+                .unwrap_or_default();
             for k in sorted(self.map_of_basetype.keys()) {
                 println!(
-                    "{}{} => {}",
+                    "{}{:<len$} => {}",
                     INDENT,
                     k.blue().bold(),
-                    self.map_of_basetype[k].yellow()
+                    self.map_of_basetype[k].yellow(),
+                    len = max_key_len
                 );
             }
             println!();
@@ -209,12 +216,18 @@ impl Analyzer {
             println!("{}", "Struct Type :".green().bold());
             for k in sorted(self.map_of_struct.keys()) {
                 println!("{}{} {{", INDENT, k.blue().bold());
+                let max_key_len = self.map_of_struct[k]
+                    .keys()
+                    .map(|k| k.len())
+                    .max()
+                    .unwrap_or_default();
                 for member in sorted(&self.map_of_struct[k]) {
                     println!(
-                        "{}{} : {}",
+                        "{}{:<len$} : {}",
                         INDENT.repeat(2),
                         member.0.blue().bold(),
-                        member.1.yellow()
+                        member.1.yellow(),
+                        len = max_key_len
                     );
                 }
                 println!("{}}}", INDENT);
@@ -235,13 +248,20 @@ impl Analyzer {
             for vcm in b.1 {
                 if vcm.1.len() > 0 {
                     println!("{}{} {{", tab, vcm.0.blue().bold());
+                    let max_key_len = vcm
+                        .1
+                        .iter()
+                        .map(|k| k.member_name.len())
+                        .max()
+                        .unwrap_or_default();
                     for vc in vcm.1 {
                         println!(
-                            "{}{}{} : {}",
+                            "{}{}{:<len$} : {}",
                             tab,
                             INDENT,
                             vc.member_name.blue().bold(),
-                            vc.member_def.yellow()
+                            vc.member_def.yellow(),
+                            len = max_key_len
                         );
                     }
                     println!("{}}}", tab);
@@ -271,7 +291,7 @@ impl Analyzer {
             let (type_def, _) = get_type_name_from_definition(d.1);
 
             if type_def == "object" {
-                //struct
+                // struct
                 let prop = match d.1.get("properties") {
                     None => continue,
                     Some(p) => p,
@@ -292,7 +312,7 @@ impl Analyzer {
                 struct_type.insert(d.0.to_string(), vec_struct);
             } else {
                 //base type
-                base_type.insert("".to_string() + d.0, type_def.to_string());
+                base_type.insert(d.0.to_owned(), type_def.to_string());
             }
         }
         return true;
@@ -406,15 +426,21 @@ impl Analyzer {
 
     pub fn show_message_type(&self, name: &str, members: &Vec<Member>) {
         println!("{} {{", name.blue().bold());
+        let max_key_len = members
+            .iter()
+            .map(|k| k.member_name.len())
+            .max()
+            .unwrap_or_default();
         for vcm in members {
             let st = match self.map_of_struct.get_key_value(vcm.member_def.as_str()) {
                 Some(h) => h,
                 _ => {
                     println!(
-                        "{}{} : {}",
+                        "{}{:<len$} : {}",
                         INDENT,
                         vcm.member_name.blue().bold(),
-                        vcm.member_def.yellow()
+                        vcm.member_def.yellow(),
+                        len = max_key_len
                     );
                     continue;
                 }
@@ -426,12 +452,14 @@ impl Analyzer {
                 vcm.member_name.blue().bold(),
                 vcm.member_def.yellow()
             );
+            let max_key_len = st.1.iter().map(|k| k.0.len()).max().unwrap_or_default();
             for members in st.1 {
                 println!(
-                    "{}{} : {}",
+                    "{}{:<len$} : {}",
                     INDENT.repeat(2),
                     members.0.blue().bold(),
-                    members.1.yellow()
+                    members.1.yellow(),
+                    len = max_key_len
                 );
             }
             println!("{}}}", INDENT);

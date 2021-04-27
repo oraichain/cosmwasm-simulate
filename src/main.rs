@@ -40,7 +40,7 @@ fn call_engine(contract_addr: &str, func_type: &str, msg: &str) -> Result<String
             None => Err(format!("No such contract: {}", contract_addr)),
             Some(engine) => match base64::decode(msg.as_bytes()) {
                 Ok(input) => match String::from_utf8(input) {
-                    Ok(param) => Ok(engine.call(func_type.to_owned(), param).to_owned()),
+                    Ok(param) => Ok(engine.call(func_type, param.as_str()).to_owned()),
                     Err(err) => Err(err.to_string()),
                 },
                 Err(err) => Err(err.to_string()),
@@ -443,9 +443,7 @@ fn simulate_by_auto_analyze(
 
         let json_msg = input_message(call_param.as_str(), msg, engine, &is_enum);
 
-        println!("call {} - {}", call_type, json_msg);
-
-        engine.call(call_type, json_msg);
+        engine.call(call_type.as_str(), json_msg.as_str());
     }
 }
 
@@ -480,7 +478,8 @@ fn simulate_by_json(
         }
 
         input_with_out_handle(&mut json_msg, true);
-        engine.call(call_type, json_msg);
+
+        engine.call(call_type.as_str(), json_msg.as_str());
     }
 }
 
@@ -507,10 +506,6 @@ fn start_simulate_forever(contract_addr: &str, sender_addr: &str) -> bool {
     match start_simulate(contract_addr, sender_addr) {
         Ok(ret) => {
             if ret.0 {
-                println!(
-                    "start_simulate success for contract: {}",
-                    contract_addr.blue().bold()
-                );
                 // recursive
                 start_simulate_forever(ret.1.as_str(), sender_addr)
             } else {
