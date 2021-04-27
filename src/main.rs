@@ -429,9 +429,6 @@ fn simulate_by_auto_analyze(
         let msg = match msg_type.get(call_param.as_str()) {
             None => {
                 println!("can not find msg type {}", call_param.as_str());
-                for k in msg_type.keys() {
-                    print!("{}", k);
-                }
                 continue;
             }
             Some(v) => v,
