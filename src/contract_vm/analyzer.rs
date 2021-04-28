@@ -179,7 +179,7 @@ impl Analyzer {
         } else {
             // if require at least 1 param, surely properties has more than 1 item
             for (req_str, proper) in properties.as_object().unwrap() {
-                if let Some(member) = Analyzer::get_member(req_str, proper) {
+                if let Some(member) = Self::get_member(req_str, proper) {
                     vec_mem.insert(vec_mem.len(), member);
                 }
             }
@@ -304,7 +304,7 @@ impl Analyzer {
 
                 let mut vec_struct: HashMap<String, String> = HashMap::new();
                 for (req_str, proper) in prop_map {
-                    if let Some(member) = Analyzer::get_member(req_str, proper) {
+                    if let Some(member) = Self::get_member(req_str, proper) {
                         vec_struct.insert(member.member_name, member.member_def);
                     }
                 }
@@ -346,7 +346,7 @@ impl Analyzer {
         // prepare definitions before analyzing
         for iter in mapping.iter() {
             if iter.0 == "definitions" {
-                Analyzer::prepare_definitions(
+                Self::prepare_definitions(
                     &iter.1,
                     &mut self.map_of_basetype,
                     &mut self.map_of_struct,
@@ -361,7 +361,7 @@ impl Analyzer {
                     Some(p) => p,
                 };
 
-                Analyzer::build_member(
+                Self::build_member(
                     iter.1,
                     properties,
                     &title_must_exist.to_string(),
@@ -410,7 +410,7 @@ impl Analyzer {
                     };
 
                     if name != "null" {
-                        Analyzer::build_member(
+                        Self::build_member(
                             target_required,
                             properties,
                             &name.to_string(),
