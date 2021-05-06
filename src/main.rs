@@ -14,7 +14,10 @@ use clap::{App, Arg};
 use colored::*;
 use cosmwasm_std::{Binary, QuerierResult, SystemError, SystemResult, WasmQuery};
 use itertools::sorted;
+use rocket::fairing::{Fairing, Info, Kind};
+use rocket::http::Header;
 use rocket::response::content;
+use rocket::{Request, Response};
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
 use std::path::Path;
@@ -73,6 +76,28 @@ fn query_contract(address: String, msg: String) -> content::Json<String> {
     }
 }
 
+// empty struct
+pub struct CORS;
+
+impl Fairing for CORS {
+    fn info(&self) -> Info {
+        Info {
+            name: "Add CORS headers to requests",
+            kind: Kind::Response,
+        }
+    }
+
+    fn on_response(&self, _request: &Request, response: &mut Response) {
+        response.set_header(Header::new("Access-Control-Allow-Origin", "*"));
+        response.set_header(Header::new(
+            "Access-Control-Allow-Methods",
+            "POST, GET, OPTIONS",
+        ));
+        response.set_header(Header::new("Access-Control-Allow-Headers", "*"));
+        response.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
+    }
+}
+
 fn start_server(port: u16) {
     // launch server
     thread::spawn(move || {
@@ -84,6 +109,7 @@ fn start_server(port: u16) {
 
         // launch Restful
         rocket::custom(config)
+            .attach(CORS)
             .mount(
                 "/wasm",
                 routes![init_contract, handle_contract, query_contract],
