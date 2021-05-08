@@ -2,7 +2,7 @@
 
 Simulation tool of Cosmwasm smart contract
 
-# Overview
+## Overview
 
 cosmwasm-simulate is developed for Cosmwasm Smart Contract system, the main functions is:
 
@@ -17,7 +17,7 @@ cosmwasm-simulate is developed for Cosmwasm Smart Contract system, the main func
 
 ![Demo](./demo.jpg)
 
-# Build
+## Build
 
 ```shell script
 docker-compose up -d
@@ -33,8 +33,6 @@ upx --best --lzma target/release/cosmwasm-simulate
 # suggestion
 rustup component add rls rust-analysis rust-src
 ```
-
-# Guide
 
 ## Simulate deploy
 
@@ -56,14 +54,14 @@ DEBUG=true cosmwasm-simulate  /workspace/artifacts/contract.wasm port -b '{"addr
 cosmwasm-simulate [wasm_file]
 ```
 
-##### Attention: You must make sure that must include directory: [schema](https://github.com/CosmWasm/cosmwasm-examples/tree/master/erc20/schema) at same directory of`wasm_file`
+##### Attention: You must make sure that must include directory: [schema] at same directory of`wasm_file`
 
 ## Simulate run
 
 cosmwasm-simulate will auto load json schema file to analyze all message type and structure type after code compile complete.  
 it will guide you to enter the correct command and data structure
 
-### Example
+## Example
 
 For example,we use repo`~/github.com/cosmwasm/cosmwasm-examples/erc20/contract.wasm` to test this tool，you can download erc20 contract example from [Cosmwasm-github](https://github.com/CosmWasm/cosmwasm-examples)  
 1 .Load wasm
@@ -157,11 +155,11 @@ Gas used   : 19239
 Call return msg [Execute Success]
 ```
 
-# Build docker image
+## Build docker image
 
 `docker build -t orai/cosmwasm-simulate:0.11-slim -f Dockerfile .`
 
-# Future
+## Future
 
 - More customization function
 - More features support
