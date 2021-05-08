@@ -7,7 +7,7 @@ Simulation tool of Cosmwasm smart contract
 cosmwasm-simulate is developed for Cosmwasm Smart Contract system, the main functions is:
 
 - Fast load & deploy & hot-reload contract without run WASMD
-- Fast call contract interface via command
+- Fast call contract interface via command & switch contract, account
 - Fast Dapp development via Restful API & already integrated with Oraichain Studio
 - Print some debug information on screen
 - Do some bytecode check during wasm instanced
