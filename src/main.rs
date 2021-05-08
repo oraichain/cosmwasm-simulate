@@ -170,10 +170,6 @@ fn query_wasm(request: &WasmQuery) -> QuerierResult {
     }
 }
 
-fn input_with_out_handle(input_data: &mut String, store_input: bool) -> bool {
-    unsafe { EDITOR.readline(input_data, store_input) }
-}
-
 fn check_is_need_slash(name: &str) -> bool {
     // Binary is base64 string input
     if name.eq("string") {
@@ -188,7 +184,10 @@ fn to_json_item(name: &String, type_name: &str, engine: &ContractInstance) -> St
         None => (type_name, false),
     };
     let mut data: String = String::new();
-    input_with_out_handle(&mut data, true);
+
+    unsafe {
+        EDITOR.readline(&mut data, true);
+    }
 
     // do not append optional when empty
     if data.is_empty() && optional {
@@ -230,7 +229,9 @@ fn input_type(mem_name: &String, type_name: &String, engine: &ContractInstance) 
     params.push_str("\":");
 
     if st.1.len() == 0 {
-        input_with_out_handle(&mut params, true);
+        unsafe {
+            EDITOR.readline(&mut params, true);
+        }
     } else {
         params.push('{');
         // member is default sorted
@@ -322,7 +323,9 @@ fn get_call_type() -> Option<(String, bool, bool)> {
         EDITOR.update_history_entries(params.clone());
 
         println!(")");
-        input_with_out_handle(&mut call_type, false);
+
+        EDITOR.readline(&mut call_type, false);
+
         if !params.contains(&call_type) {
             print!(
                 "Wrong call type [{}], must one of ({} | {} | {}",
@@ -361,7 +364,7 @@ fn get_call_type() -> Option<(String, bool, bool)> {
 
             print!(" ]\n");
 
-            input_with_out_handle(&mut call_param, false);
+            EDITOR.readline(&mut call_param, false);
 
             // check contract existed
             if ENGINES.get(&call_param).is_none() {
@@ -390,7 +393,7 @@ fn get_call_type() -> Option<(String, bool, bool)> {
 
             print!(" ]\n");
 
-            input_with_out_handle(&mut call_param, false);
+            EDITOR.readline(&mut call_param, false);
 
             // check account existed
             if !ACCOUNTS
@@ -482,7 +485,7 @@ fn simulate_by_auto_analyze(
 
                 print!(" ]\n");
 
-                input_with_out_handle(&mut call_param, false);
+                EDITOR.readline(&mut call_param, false);
             }
 
             // if there is anyOf, it is enum
@@ -522,7 +525,8 @@ fn simulate_by_auto_analyze(
 
                     print!(" ]\n");
                     call_param.clear();
-                    input_with_out_handle(&mut call_param, false);
+
+                    EDITOR.readline(&mut call_param, false);
                 }
             }
 
@@ -587,8 +591,7 @@ fn simulate_by_json(
             // update previous history entries
 
             EDITOR.update_input_history_entry();
-
-            input_with_out_handle(&mut json_msg, true);
+            EDITOR.readline(&mut json_msg, true);
 
             engine.call(call_type.as_str(), json_msg.as_str(), info);
         }
