@@ -22,13 +22,12 @@ use wasmer_runtime_core::{
 };
 use wasmer_singlepass_backend::ModuleCodeGenerator as SinglePassMCG;
 
-const DEFAULT_SENDER_BALANCE: u64 = 10_000_000_000_000_000;
 const DEFAULT_CONTRACT_BALANCE: u64 = 10_000_000_000_000_000;
 const DEFAULT_GAS_LIMIT: u64 = 500_000_000_000_000;
 const COMPILE_GAS_LIMIT: u64 = 10_000_000_000;
 const DEFAULT_MEMORY_LIMIT: Size = Size::mebi(16);
 const DEFAULT_PRINT_DEBUG: bool = true;
-const DENOM: &str = "orai";
+pub const DENOM: &str = "orai";
 const CHAIN_ID: &str = "Oraichain";
 const SCHEMA_FOLDER: &str = "schema";
 
@@ -37,7 +36,6 @@ pub struct ContractInstance {
     pub instance: Instance<MockApi, mock::MockStorage, mock::MockQuerier<mock::SpecialQuery>>,
     pub wasm_file: String,
     pub env: Env,
-    pub message: MessageInfo,
     pub analyzer: analyzer::Analyzer,
 }
 
@@ -54,7 +52,6 @@ impl ContractInstance {
     pub fn new_instance(
         wasm_file: &str,
         contract_addr: &str,
-        sender_addr: &str,
         query_wasm: WasmHandler,
         storage: &mock::MockStorage,
     ) -> Result<Self, String> {
@@ -69,7 +66,7 @@ impl ContractInstance {
             Ok(code) => code,
         };
         if cfg!(debug_assertions) {
-            println!("Compiling code");
+            println!("Compiling code [{}]", wasm_file.blue().bold());
         }
 
         // compile then init instance wasmer
@@ -105,7 +102,6 @@ impl ContractInstance {
             inst,
             wasm_file.to_string(),
             contract_addr,
-            sender_addr,
         ));
     }
 
@@ -118,13 +114,9 @@ impl ContractInstance {
         >,
         file: String,
         contract_addr: &str,
-        sender_addr: &str,
     ) -> ContractInstance {
         let alz = analyzer::from_json_schema(&file, SCHEMA_FOLDER);
-        let sent_balances = &[Coin {
-            denom: DENOM.to_string(),
-            amount: Uint128::from(DEFAULT_SENDER_BALANCE),
-        }];
+
         ContractInstance {
             module: md,
             instance: inst,
@@ -140,25 +132,28 @@ impl ContractInstance {
                     address: HumanAddr::from(contract_addr),
                 },
             },
-            message: MessageInfo {
-                sender: HumanAddr(sender_addr.to_string()),
-                sent_funds: sent_balances.to_vec(),
-            },
             analyzer: alz,
         }
     }
 
     pub fn show_module_info(&self) {
-        println!("showing wasm module info for [{}]", self.wasm_file);
-        println!("backend : [{}]", self.module.info().backend);
+        println!(
+            "showing wasm module info for [{}]",
+            self.wasm_file.blue().bold()
+        );
+        println!("backend : [{}]", self.module.info().backend.blue().bold());
 
         println!("=============================== module info exported func name ===============================");
         for exdesc in self.module.exports() {
-            println!("exported func name [{}]", exdesc.name);
+            println!("exported func name [{}]", exdesc.name.blue().bold());
         }
         println!("=============================== module info exported func name ===============================");
         for desc in self.module.imports() {
-            println!("import descriptor name:[{}->{}]", desc.namespace, desc.name);
+            println!(
+                "import descriptor name:[{}->{}]",
+                desc.namespace.blue().bold(),
+                desc.name.yellow().bold()
+            );
         }
     }
 
@@ -184,11 +179,11 @@ impl ContractInstance {
         value_str
     }
 
-    pub fn init(&mut self, param: &str) -> String {
+    pub fn init(&mut self, param: &str, info: &MessageInfo) -> String {
         let result = cosmwasm_vm::call_init::<_, _, _, Empty>(
             &mut self.instance,
             &self.env,
-            &self.message,
+            info,
             param.as_bytes(),
         );
 
@@ -219,11 +214,11 @@ impl ContractInstance {
         }
     }
 
-    pub fn handle(&mut self, param: &str) -> String {
+    pub fn handle(&mut self, param: &str, info: &MessageInfo) -> String {
         let result = cosmwasm_vm::call_handle::<_, _, _, Empty>(
             &mut self.instance,
             &self.env,
-            &self.message,
+            info,
             param.as_bytes(),
         );
 
@@ -277,9 +272,9 @@ impl ContractInstance {
         }
     }
 
-    pub fn call(&mut self, func_type: &str, param: &str) -> String {
+    pub fn call(&mut self, func_type: &str, param: &str, info: &MessageInfo) -> String {
         println!();
-        println!("___________________________call started___________________________");
+        println!("===========================call started===========================");
         println!(
             "executing func [{}] , params is {}",
             func_type.green().bold(),
@@ -287,8 +282,8 @@ impl ContractInstance {
         );
         let gas_init = self.instance.get_gas_left();
         let res = match func_type {
-            "init" => self.init(param),
-            "handle" => self.handle(param),
+            "init" => self.init(param, info),
+            "handle" => self.handle(param, info),
             "query" => self.query(param),
             _ => {
                 println!("wrong dispatcher call {}", func_type.green().bold());
@@ -302,7 +297,7 @@ impl ContractInstance {
             "gas used".blue().bold(),
             gas_used.to_string().yellow()
         );
-        println!("___________________________call finished___________________________");
+        println!("===========================call finished===========================");
         println!();
         return res;
     }

@@ -7,62 +7,81 @@ extern crate clap;
 
 use crate::contract_vm::analyzer::{Member, INDENT};
 use crate::contract_vm::editor::TerminalEditor;
-use crate::contract_vm::engine::ContractInstance;
+use crate::contract_vm::engine::{ContractInstance, DENOM};
 use crate::contract_vm::mock::MockStorage;
 use crate::contract_vm::querier::WasmHandler;
 use clap::{App, Arg};
 use colored::*;
-use cosmwasm_std::{Binary, QuerierResult, SystemError, SystemResult, WasmQuery};
+use cosmwasm_std::{
+    from_slice, Binary, Coin, HumanAddr, MessageInfo, QuerierResult, SystemError, SystemResult,
+    Uint128, WasmQuery,
+};
 use itertools::sorted;
 use rocket::fairing::{Fairing, Info, Kind};
 use rocket::http::Header;
 use rocket::response::content;
 use rocket::{Request, Response};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
 use std::path::Path;
 use std::{fs, sync, thread, time};
 
 // default const is 'static lifetime
-const SENDER_ADDR: &str = "fake_sender_addr";
+const DEFAULT_SENDER_ADDR: &str = "fake_sender_addr";
 const DEFAULT_REPLICATED_LIMIT: usize = 1024;
+const DEFAULT_SENDER_BALANCE: u64 = 10_000_000_000_000_000;
 
 #[macro_use]
 extern crate lazy_mut;
 lazy_mut! {
     static mut EDITOR: TerminalEditor = TerminalEditor::new();
     static mut ENGINES : HashMap<String, ContractInstance> = HashMap::new();
+    static mut ACCOUNTS : Vec<MessageInfo> = Vec::new();
 }
 
 #[macro_use]
 extern crate rocket;
 
-fn call_engine(contract_addr: &str, func_type: &str, msg: &str) -> Result<String, String> {
+fn call_engine(
+    contract_addr: &str,
+    func_type: &str,
+    msg: &str,
+    account: Option<String>,
+) -> Result<String, String> {
     unsafe {
-        match ENGINES.get_mut(contract_addr) {
-            None => Err(format!("No such contract: {}", contract_addr)),
-            Some(engine) => match base64::decode(msg.as_bytes()) {
-                Ok(input) => match String::from_utf8(input) {
-                    Ok(param) => Ok(engine.call(func_type, param.as_str()).to_owned()),
+        let addr = match account {
+            Some(a) => a,
+            None => DEFAULT_SENDER_ADDR.to_string(),
+        };
+
+        match ACCOUNTS.iter().find(|x| x.sender.to_string().eq(&addr)) {
+            Some(info) => match ENGINES.get_mut(contract_addr) {
+                None => Err(format!("No such contract: {}", contract_addr)),
+                Some(engine) => match base64::decode(msg.as_bytes()) {
+                    Ok(input) => match String::from_utf8(input) {
+                        Ok(param) => Ok(engine.call(func_type, param.as_str(), info).to_owned()),
+                        Err(err) => Err(err.to_string()),
+                    },
                     Err(err) => Err(err.to_string()),
                 },
-                Err(err) => Err(err.to_string()),
             },
+            None => Err(format!("No account found for {}", addr)),
         }
     }
 }
 
-#[get("/contract/<address>/init/<msg>")]
-fn init_contract(address: String, msg: String) -> content::Json<String> {
-    match call_engine(address.as_str(), "init", msg.as_str()) {
+#[get("/contract/<address>/init/<msg>?<account>")]
+fn init_contract(address: String, msg: String, account: Option<String>) -> content::Json<String> {
+    match call_engine(address.as_str(), "init", msg.as_str(), account) {
         Ok(data) => content::Json(format!(r#"{{"data": {}}}"#, data)),
         Err(err) => content::Json(format!(r#"{{"error": "{}"}}"#, err)),
     }
 }
 
-#[get("/contract/<address>/handle/<msg>")]
-fn handle_contract(address: String, msg: String) -> content::Json<String> {
-    match call_engine(address.as_str(), "handle", msg.as_str()) {
+#[get("/contract/<address>/handle/<msg>?<account>")]
+fn handle_contract(address: String, msg: String, account: Option<String>) -> content::Json<String> {
+    match call_engine(address.as_str(), "handle", msg.as_str(), account) {
         Ok(data) => content::Json(format!(r#"{{"data": {}}}"#, data)),
         Err(err) => content::Json(format!(r#"{{"error": "{}"}}"#, err)),
     }
@@ -70,7 +89,7 @@ fn handle_contract(address: String, msg: String) -> content::Json<String> {
 
 #[get("/contract/<address>/query/<msg>")]
 fn query_contract(address: String, msg: String) -> content::Json<String> {
-    match call_engine(address.as_str(), "query", msg.as_str()) {
+    match call_engine(address.as_str(), "query", msg.as_str(), None) {
         Ok(data) => content::Json(format!(r#"{{"data": {}}}"#, data)),
         Err(err) => content::Json(format!(r#"{{"error": "{}"}}"#, err)),
     }
@@ -266,14 +285,16 @@ fn input_message(
     final_msg
 }
 
-fn get_call_type() -> Option<(String, bool)> {
+// get_call_type return value and indicate it is contract switch or account switch
+fn get_call_type() -> Option<(String, bool, bool)> {
     let mut call_type = String::new();
     let mut params = vec![
         "init".to_string(),
         "handle".to_string(),
         "query".to_string(),
     ];
-    let mut need_switch = false;
+    let mut contract_switch = false;
+    let mut account_switch = false;
 
     print!(
         "Input call type ({} | {} | {}",
@@ -283,42 +304,49 @@ fn get_call_type() -> Option<(String, bool)> {
     );
     unsafe {
         if ENGINES.len() > 1 {
-            need_switch = true;
+            contract_switch = true;
         }
-        if need_switch {
-            print!(" | {}", "switch".blue().bold());
-            params.push("switch".to_string());
+        if ACCOUNTS.len() > 1 {
+            account_switch = true;
         }
-        EDITOR.update_history_entries(params);
-    }
-    println!(")");
-    input_with_out_handle(&mut call_type, false);
-    if call_type.ne("init")
-        && call_type.ne("handle")
-        && call_type.ne("query")
-        && need_switch
-        && call_type.ne("switch")
-    {
-        print!(
-            "Wrong call type [{}], must one of ({} | {} | {}",
-            call_type.red().bold(),
-            "init".green().bold(),
-            "handle".green().bold(),
-            "query".green().bold(),
-        );
-        if need_switch {
-            print!(" | {}", "switch".green().bold());
+        if contract_switch {
+            print!(" | {}", "contract".blue().bold());
+            params.push("contract".to_string());
         }
-        println!(")");
-        return None;
-    }
+        if account_switch {
+            print!(" | {}", "account".blue().bold());
+            params.push("account".to_string());
+        }
 
-    // default messages
-    if need_switch && call_type.eq("switch") {
-        let mut first = true;
-        let mut call_param = String::new();
-        print!("Choose smart contract [ ");
-        unsafe {
+        // clone params to use contains without moving problem
+        EDITOR.update_history_entries(params.clone());
+
+        println!(")");
+        input_with_out_handle(&mut call_type, false);
+        if !params.contains(&call_type) {
+            print!(
+                "Wrong call type [{}], must one of ({} | {} | {}",
+                call_type.red().bold(),
+                "init".green().bold(),
+                "handle".green().bold(),
+                "query".green().bold(),
+            );
+            if contract_switch {
+                print!(" | {}", "contract".green().bold());
+            }
+            if account_switch {
+                print!(" | {}", "contract".green().bold());
+            }
+            println!(")");
+            return None;
+        }
+
+        // default messages
+        if contract_switch && call_type.eq("contract") {
+            let mut first = true;
+            let mut call_param = String::new();
+            print!("Choose smart contract [ ");
+
             EDITOR.clear_history();
 
             for k in sorted(ENGINES.keys()) {
@@ -330,67 +358,116 @@ fn get_call_type() -> Option<(String, bool)> {
                 print!("{}", k.green().bold());
                 EDITOR.add_history_entry(k);
             }
-        }
-        print!(" ]\n");
 
-        input_with_out_handle(&mut call_param, false);
+            print!(" ]\n");
 
-        // check contract existed
-        unsafe {
+            input_with_out_handle(&mut call_param, false);
+
+            // check contract existed
             if ENGINES.get(&call_param).is_none() {
                 println!("Smart contract {} not existed", call_param.red().bold());
                 return None;
             }
-        }
 
-        // return contract as switch param
-        return Some((call_param, true));
+            // return contract as switch param
+            return Some((call_param, true, false));
+        } else if account_switch && call_type.eq("account") {
+            let mut first = true;
+            let mut call_param = String::new();
+            print!("Choose account [ ");
+
+            EDITOR.clear_history();
+
+            for info in ACCOUNTS.iter() {
+                if first {
+                    first = false;
+                } else {
+                    print!(" | ")
+                }
+                print!("{}", info.sender.as_str().green().bold());
+                EDITOR.add_history_entry(info.sender.as_str());
+            }
+
+            print!(" ]\n");
+
+            input_with_out_handle(&mut call_param, false);
+
+            // check account existed
+            if !ACCOUNTS
+                .iter()
+                .map(|x| x.sender.to_string())
+                .collect::<Vec<String>>()
+                .contains(&call_param)
+            {
+                println!("Account {} not existed", call_param.red().bold());
+                return None;
+            }
+
+            // return contract as switch param
+            return Some((call_param, false, true));
+        }
     }
 
-    return Some((call_type, false));
+    return Some((call_type, false, false));
 }
 
 fn simulate_by_auto_analyze(
     engine: &mut ContractInstance,
     sender_addr: &str,
-) -> Result<(bool, String), String> {
+) -> Result<(bool, String, String), String> {
     // enable debug, show info
     if cfg!(debug_assertions) {
         engine.analyzer.dump_all_members();
         engine.analyzer.dump_all_definitions();
     }
 
-    loop {
-        println!(
-            "Start_simulate with sender: {}, contract: {}",
-            sender_addr.green().bold(),
-            engine.env.contract.address.green().bold()
-        );
-
-        let (call_type, is_switch) = match get_call_type() {
-            None => continue,
-            Some(s) => s,
+    unsafe {
+        let info = match ACCOUNTS.iter().find(|x| x.sender.as_str().eq(sender_addr)) {
+            Some(i) => i,
+            None => return Err(format!("No account found: {}", sender_addr)),
         };
 
-        let mut call_param = String::new();
-        let mut first = true;
-        // default messages
-        if is_switch {
-            if engine.env.contract.address.to_string().ne(&call_param) {
-                return Ok((true, call_type));
-            }
-            continue;
-        } else if call_type.eq("init") && engine.analyzer.map_of_member.contains_key("InitMsg") {
-            call_param = "InitMsg".to_string();
-        } else if call_type.eq("handle") && engine.analyzer.map_of_member.contains_key("HandleMsg")
-        {
-            call_param = "HandleMsg".to_string();
-        } else if call_type.eq("query") && engine.analyzer.map_of_member.contains_key("QueryMsg") {
-            call_param = "QueryMsg".to_string();
-        } else {
-            print!("Input Call param from [ ");
+        loop {
+            println!(
+                "Start_simulate with sender: {}, contract: {}",
+                sender_addr.green().bold(),
+                engine.env.contract.address.green().bold()
+            );
 
-            unsafe {
+            let (call_type, contract_switch, account_switch) = match get_call_type() {
+                None => continue,
+                Some(s) => s,
+            };
+
+            let mut call_param = String::new();
+            let mut first = true;
+            // default messages
+            if contract_switch {
+                // change contract
+                if engine.env.contract.address.to_string().ne(&call_type) {
+                    return Ok((true, call_type, sender_addr.to_string()));
+                }
+                continue;
+            } else if account_switch {
+                // change account
+                if sender_addr.ne(call_type.as_str()) {
+                    return Ok((true, engine.env.contract.address.to_string(), call_type));
+                }
+                continue;
+            } else if call_type.eq("init") && engine.analyzer.map_of_member.contains_key("InitMsg")
+            {
+                call_param = "InitMsg".to_string();
+            } else if call_type.eq("handle")
+                && engine.analyzer.map_of_member.contains_key("HandleMsg")
+            {
+                call_param = "HandleMsg".to_string();
+            } else if call_type.eq("query")
+                && engine.analyzer.map_of_member.contains_key("QueryMsg")
+            {
+                call_param = "QueryMsg".to_string();
+            } else {
+                print!("Input Call param from [ ");
+
                 EDITOR.clear_history();
 
                 for k in sorted(engine.analyzer.map_of_member.keys()) {
@@ -402,38 +479,36 @@ fn simulate_by_auto_analyze(
                     print!("{}", k.green().bold());
                     EDITOR.add_history_entry(k);
                 }
+
+                print!(" ]\n");
+
+                input_with_out_handle(&mut call_param, false);
             }
 
-            print!(" ]\n");
+            // if there is anyOf, it is enum
+            let is_enum = engine
+                .analyzer
+                .map_of_enum
+                .get(&call_param)
+                .unwrap_or(&false);
 
-            input_with_out_handle(&mut call_param, false);
-        }
+            let msg_type: &HashMap<String, Vec<Member>> =
+                match engine.analyzer.map_of_member.get(call_param.as_str()) {
+                    None => {
+                        println!("can not find msg type {}", call_param.as_str());
+                        continue;
+                    }
+                    Some(v) => v,
+                };
+            let len = msg_type.len();
+            if len > 0 {
+                //only one msg
+                if msg_type.len() == 1 {
+                    call_param = msg_type.keys().next().unwrap().to_string();
+                } else {
+                    print!("Input Call param from [ ");
+                    first = true;
 
-        // if there is anyOf, it is enum
-        let is_enum = engine
-            .analyzer
-            .map_of_enum
-            .get(&call_param)
-            .unwrap_or(&false);
-
-        let msg_type: &HashMap<String, Vec<Member>> =
-            match engine.analyzer.map_of_member.get(call_param.as_str()) {
-                None => {
-                    println!("can not find msg type {}", call_param.as_str());
-                    continue;
-                }
-                Some(v) => v,
-            };
-        let len = msg_type.len();
-        if len > 0 {
-            //only one msg
-            if msg_type.len() == 1 {
-                call_param = msg_type.keys().next().unwrap().to_string();
-            } else {
-                print!("Input Call param from [ ");
-                first = true;
-
-                unsafe {
                     EDITOR.clear_history();
                     for k in sorted(msg_type.keys()) {
                         if first {
@@ -444,72 +519,87 @@ fn simulate_by_auto_analyze(
                         print!("{}", k.green().bold());
                         EDITOR.add_history_entry(k);
                     }
+
+                    print!(" ]\n");
+                    call_param.clear();
+                    input_with_out_handle(&mut call_param, false);
                 }
-
-                print!(" ]\n");
-                call_param.clear();
-                input_with_out_handle(&mut call_param, false);
             }
-        }
 
-        let msg = match msg_type.get(call_param.as_str()) {
-            None => {
-                println!("can not find msg type {}", call_param.as_str());
-                continue;
-            }
-            Some(v) => v,
-        };
+            let msg = match msg_type.get(call_param.as_str()) {
+                None => {
+                    println!("can not find msg type {}", call_param.as_str());
+                    continue;
+                }
+                Some(v) => v,
+            };
 
-        engine.analyzer.show_message_type(call_param.as_str(), msg);
+            engine.analyzer.show_message_type(call_param.as_str(), msg);
 
-        // update previous history entries
-        unsafe {
+            // update previous history entries
+
             EDITOR.update_input_history_entry();
+
+            let json_msg = input_message(call_param.as_str(), msg, engine, &is_enum);
+
+            engine.call(call_type.as_str(), json_msg.as_str(), info);
         }
-
-        let json_msg = input_message(call_param.as_str(), msg, engine, &is_enum);
-
-        engine.call(call_type.as_str(), json_msg.as_str());
     }
 }
 
 fn simulate_by_json(
     engine: &mut ContractInstance,
     sender_addr: &str,
-) -> Result<(bool, String), String> {
-    loop {
-        println!(
-            "Start_simulate with sender: {}, contract: {}",
-            sender_addr.green().bold(),
-            engine.env.contract.address.green().bold()
-        );
-        let (call_type, is_switch) = match get_call_type() {
-            None => continue,
-            Some(s) => s,
+) -> Result<(bool, String, String), String> {
+    unsafe {
+        let info = match ACCOUNTS.iter().find(|x| x.sender.as_str().eq(sender_addr)) {
+            Some(i) => i,
+            None => return Err(format!("No account found: {}", sender_addr)),
         };
 
-        // default messages
-        if is_switch {
-            if engine.env.contract.address.to_string().ne(&call_type) {
-                return Ok((true, call_type));
+        loop {
+            println!(
+                "Start_simulate with sender: {}, contract: {}",
+                sender_addr.green().bold(),
+                engine.env.contract.address.green().bold()
+            );
+            let (call_type, contract_switch, account_switch) = match get_call_type() {
+                None => continue,
+                Some(s) => s,
+            };
+
+            // default messages
+            if contract_switch {
+                if engine.env.contract.address.to_string().ne(&call_type) {
+                    return Ok((true, call_type, sender_addr.to_string()));
+                }
+                continue;
+            } else if account_switch {
+                // change account
+                if sender_addr.ne(call_type.as_str()) {
+                    return Ok((true, engine.env.contract.address.to_string(), call_type));
+                }
+                continue;
             }
-            continue;
-        }
 
-        println!("Input json string:");
-        let mut json_msg = String::new();
-        // update previous history entries
-        unsafe {
+            println!("Input json string:");
+            let mut json_msg = String::new();
+            // update previous history entries
+
             EDITOR.update_input_history_entry();
+
+            input_with_out_handle(&mut json_msg, true);
+
+            engine.call(call_type.as_str(), json_msg.as_str(), info);
         }
-
-        input_with_out_handle(&mut json_msg, true);
-
-        engine.call(call_type.as_str(), json_msg.as_str());
     }
 }
 
-fn start_simulate(contract_addr: &str, sender_addr: &str) -> Result<(bool, String), String> {
+// start_simulate will return next contract and account to run
+fn start_simulate(
+    contract_addr: &str,
+    sender_addr: &str,
+) -> Result<(bool, String, String), String> {
     unsafe {
         match ENGINES.get_mut(contract_addr) {
             Some(engine) => {
@@ -533,7 +623,7 @@ fn start_simulate_forever(contract_addr: &str, sender_addr: &str) -> bool {
         Ok(ret) => {
             if ret.0 {
                 // recursive
-                start_simulate_forever(ret.1.as_str(), sender_addr)
+                start_simulate_forever(ret.1.as_str(), ret.2.as_str())
             } else {
                 println!(
                     "start_simulate failed for contract: {}",
@@ -602,17 +692,10 @@ fn load_artifacts(
 fn insert_engine(
     wasm_file: &str,
     contract_addr: &str,
-    sender_addr: &str,
     wasm_handler: WasmHandler,
     storage: &MockStorage,
 ) {
-    match ContractInstance::new_instance(
-        wasm_file,
-        contract_addr,
-        sender_addr,
-        wasm_handler,
-        storage,
-    ) {
+    match ContractInstance::new_instance(wasm_file, contract_addr, wasm_handler, storage) {
         Err(e) => {
             println!("error occurred during install contract: {}", e.red());
         }
@@ -624,7 +707,6 @@ fn insert_engine(
 
 fn watch_and_update(
     sender: &sync::mpsc::Sender<String>,
-    sender_addr: &str,
     wasm_files: &Vec<(String, String)>,
 ) -> Result<bool, Error> {
     // do not copy, use reference when loop
@@ -650,13 +732,7 @@ fn watch_and_update(
                         // callback query directly from storage to copy it
                         eng.instance
                             .with_storage(|storage| {
-                                insert_engine(
-                                    wasm_file,
-                                    contract_addr,
-                                    sender_addr,
-                                    query_wasm,
-                                    storage,
-                                );
+                                insert_engine(wasm_file, contract_addr, query_wasm, storage);
                                 Ok(())
                             })
                             .unwrap();
@@ -665,7 +741,6 @@ fn watch_and_update(
                         insert_engine(
                             wasm_file,
                             contract_addr,
-                            sender_addr,
                             query_wasm,
                             &contract_vm::mock::MockStorage::default(),
                         );
@@ -684,6 +759,12 @@ fn watch_and_update(
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct CointBalance {
+    pub address: HumanAddr,
+    pub amount: Uint128,
+}
+
 fn prepare_command_line() -> bool {
     let matches = App::new("cosmwasm-simulate")
         .version("0.1.0")
@@ -694,11 +775,43 @@ fn prepare_command_line() -> bool {
                 .help("contract file that built by https://github.com/oraichain/smart-studio.git")
                 .empty_values(false),
         )
+        .arg(Arg::with_name("port").help("port of restful server"))
         .arg(Arg::from_usage(
             "-c, --contract=[CONTRACT_FOLDER] 'Other contract folder'",
         ))
-        .arg(Arg::with_name("port").help("port of restful server"))
+        .arg(
+            Arg::from_usage("-b, --balance=[COIN_BALANCE] 'Other coin balance, multiple'")
+                .multiple(true),
+        )
         .get_matches();
+
+    unsafe {
+        ACCOUNTS.push(MessageInfo {
+            sender: HumanAddr(DEFAULT_SENDER_ADDR.to_string()),
+            sent_funds: vec![Coin {
+                denom: DENOM.to_string(),
+                amount: Uint128::from(DEFAULT_SENDER_BALANCE),
+            }],
+        });
+
+        // add more balances
+        if let Some(coin_balances) = matches.values_of("balance") {
+            for file in coin_balances.collect::<Vec<&str>>() {
+                let coin_balance: CointBalance = from_slice(file.as_bytes()).unwrap();
+
+                ACCOUNTS.push(MessageInfo {
+                    sender: coin_balance.address,
+                    sent_funds: vec![Coin {
+                        denom: DENOM.to_string(),
+                        amount: coin_balance.amount,
+                    }],
+                });
+            }
+        }
+
+        // Sort by sender address
+        ACCOUNTS.sort_by(|a, b| a.sender.cmp(&b.sender));
+    }
 
     if let Some(port_str) = matches.value_of("port") {
         if let Ok(port) = port_str.parse() {
@@ -730,7 +843,7 @@ fn prepare_command_line() -> bool {
                 ENGINES.init_once();
             }
 
-            if let Ok(ret) = watch_and_update(&sender, SENDER_ADDR, &wasm_files) {
+            if let Ok(ret) = watch_and_update(&sender, &wasm_files) {
                 return ret;
             }
             return true;
@@ -741,12 +854,14 @@ fn prepare_command_line() -> bool {
             Ok(contract_addr) => {
                 unsafe {
                     // init the first suggested items
-                    EDITOR.add_input_history_entry(SENDER_ADDR.to_string());
+                    for k in ACCOUNTS.iter() {
+                        EDITOR.add_input_history_entry(k.sender.to_string());
+                    }
                     for k in ENGINES.keys() {
                         EDITOR.add_input_history_entry(k.to_owned());
                     }
                 }
-                return start_simulate_forever(contract_addr.as_str(), SENDER_ADDR);
+                return start_simulate_forever(contract_addr.as_str(), DEFAULT_SENDER_ADDR);
             }
             Err(e) => {
                 println!("watch error: {}", e.to_string().red());

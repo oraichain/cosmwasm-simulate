@@ -5,6 +5,7 @@ use itertools::sorted;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
+use std::path::Path;
 
 pub const INDENT: &str = "    ";
 
@@ -491,13 +492,14 @@ pub fn from_json_schema(file_path: &String, schema_path: &str) -> Analyzer {
         Some(idx) => idx,
     };
     let (parent_path, _) = file_path.split_at(seg);
+    let schema_path = Path::new(parent_path).join(schema_path);
     if cfg!(debug_assertions) {
         println!(
-            "Auto loading json schema from {}/{}",
-            parent_path, schema_path
+            "Auto loading json schema from [{}]",
+            schema_path.to_str().unwrap().blue().bold()
         );
     }
-    analyzer.try_load_json_schema(std::path::Path::new(parent_path).join(schema_path));
+    analyzer.try_load_json_schema(schema_path);
     analyzer
 }
 
