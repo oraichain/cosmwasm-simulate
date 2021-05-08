@@ -44,7 +44,7 @@ wget https://github.com/CosmWasm/cosmwasm-examples/raw/master/erc20/contract.was
 - Run cosmwasm-simulate like:
 
 ```shell script
-DEBUG=true cosmwasm-simulate  /workspace/artifacts/contract.wasm port
+DEBUG=true cosmwasm-simulate  /workspace/artifacts/contract.wasm port -b '{"address":"duc_addr","amount":"300000"}' -b '{"address":"tu_addr","amount":"500000"}' -c contract
 ```
 
 - Command like follow:
@@ -72,7 +72,7 @@ cosmwasm-simulate ~/github.com/cosmwasm/cosmwasm-examples/erc20/contract.wasm
 2 .Input `init`
 
 ```shell script
-Input call type(init | handle | query):
+Input call type (init | handle | query | contract | account)
 init
 ```
 

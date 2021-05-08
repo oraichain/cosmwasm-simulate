@@ -18,6 +18,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
 
 use crate::contract_vm::querier::{CustomHandler, StdMockQuerier, WasmHandler};
+use crate::contract_vm::watcher;
 
 /// Implement MockQuerier
 
@@ -296,15 +297,18 @@ impl Storage for MockStorage {
         (Ok(value), gas_info)
     }
 
+    // watch changes
     fn set(&mut self, key: &[u8], value: &[u8]) -> BackendResult<()> {
         self.data.insert(key.to_vec(), value.to_vec());
         let gas_info = GasInfo::with_externally_used((key.len() + value.len()) as u64);
+        watcher::logger_storage_event_insert(key, value);
         (Ok(()), gas_info)
     }
 
     fn remove(&mut self, key: &[u8]) -> BackendResult<()> {
         self.data.remove(key);
         let gas_info = GasInfo::with_externally_used(key.len() as u64);
+        watcher::logger_storage_event_remove(key);
         (Ok(()), gas_info)
     }
 }
