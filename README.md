@@ -112,7 +112,7 @@ OKBT
 The tool will print DB Changes and Gas used on screen
 
 ```shell script
-***************************call started***************************
+===========================call started===========================
 executing func [init] , params is {"decimals":9,"initial_balances":[{"address":"ADDR0012345","amount":"112233445"}],"name":"OKB","symbol":"OKBT"}
 DB Changed : [Insert]
 Key        : balancesADDR0012345]
@@ -125,7 +125,7 @@ Key        : [configtotal_supply]
 Value      : [0006636f6e666967746f74616c5f737570706c79]
 init msg.data: =
 Gas used   : 59422
-***************************call finished***************************
+===========================call finished===========================
 Call return msg [Execute Success]
 ```
 
@@ -146,11 +146,11 @@ balance
 input [address]:
 ADDR0012345
 JsonMsg:{"balance":{"address":"ADDR0012345"}}
-***************************call started***************************
+===========================call started===========================
 executing func [query] , params is {"balance":{"address":"ADDR0012345"}}
 query msg.data: = {"balance":"112233445"}
 Gas used   : 19239
-***************************call finished***************************
+===========================call finished===========================
 Call return msg [Execute Success]
 ```
 
@@ -161,6 +161,4 @@ Call return msg [Execute Success]
 # Future
 
 - More customization function
-- Make cosmwasm-simulate visualization `(html+js+rpc)`
-- Upgrade and sync with cosmwasm
 - More features support
