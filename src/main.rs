@@ -7,9 +7,10 @@ extern crate clap;
 
 use crate::contract_vm::analyzer::{Member, INDENT};
 use crate::contract_vm::editor::TerminalEditor;
-use crate::contract_vm::engine::{ContractInstance, DENOM};
+use crate::contract_vm::engine::{ContractInstance, BLOCK_HEIGHT, CHAIN_ID, DENOM};
 use crate::contract_vm::mock::MockStorage;
 use crate::contract_vm::querier::WasmHandler;
+
 use clap::{App, Arg};
 use colored::*;
 use cosmwasm_std::{
@@ -432,9 +433,10 @@ fn simulate_by_auto_analyze(
 
         loop {
             println!(
-                "Start_simulate with sender: {}, contract: {}",
+                "Start_simulate with sender: {}, contract: {}, chain: {}, denom: {}, block height: {}",
                 sender_addr.green().bold(),
-                engine.env.contract.address.green().bold()
+                engine.env.contract.address.green().bold(),
+                CHAIN_ID.green().bold(), DENOM.green().bold(), BLOCK_HEIGHT.to_string().green().bold()
             );
 
             let (call_type, contract_switch, account_switch) = match get_call_type() {
@@ -563,9 +565,10 @@ fn simulate_by_json(
 
         loop {
             println!(
-                "Start_simulate with sender: {}, contract: {}",
+                "Start_simulate with sender: {}, contract: {}, chain: {}, denom: {}, block height: {}",
                 sender_addr.green().bold(),
-                engine.env.contract.address.green().bold()
+                engine.env.contract.address.green().bold(),
+                CHAIN_ID.green().bold(), DENOM.green().bold(), BLOCK_HEIGHT.to_string().green().bold()
             );
             let (call_type, contract_switch, account_switch) = match get_call_type() {
                 None => continue,
@@ -791,6 +794,7 @@ fn prepare_command_line() -> bool {
     unsafe {
         ACCOUNTS.push(MessageInfo {
             sender: HumanAddr(DEFAULT_SENDER_ADDR.to_string()),
+            // there is default account with balance
             sent_funds: vec![Coin {
                 denom: DENOM.to_string(),
                 amount: Uint128::from(DEFAULT_SENDER_BALANCE),
@@ -801,13 +805,17 @@ fn prepare_command_line() -> bool {
         if let Some(coin_balances) = matches.values_of("balance") {
             for file in coin_balances.collect::<Vec<&str>>() {
                 let coin_balance: CointBalance = from_slice(file.as_bytes()).unwrap();
-
-                ACCOUNTS.push(MessageInfo {
-                    sender: coin_balance.address,
-                    sent_funds: vec![Coin {
+                // add sent_funds if not zero
+                let sent_funds = match coin_balance.amount.is_zero() {
+                    true => vec![],
+                    false => vec![Coin {
                         denom: DENOM.to_string(),
                         amount: coin_balance.amount,
                     }],
+                };
+                ACCOUNTS.push(MessageInfo {
+                    sender: coin_balance.address,
+                    sent_funds,
                 });
             }
         }

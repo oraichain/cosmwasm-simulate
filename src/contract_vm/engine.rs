@@ -28,8 +28,10 @@ const COMPILE_GAS_LIMIT: u64 = 10_000_000_000;
 const DEFAULT_MEMORY_LIMIT: Size = Size::mebi(16);
 const DEFAULT_PRINT_DEBUG: bool = true;
 pub const DENOM: &str = "orai";
-const CHAIN_ID: &str = "Oraichain";
+pub const CHAIN_ID: &str = "Oraichain";
 const SCHEMA_FOLDER: &str = "schema";
+
+pub static mut BLOCK_HEIGHT: u64 = 12_345;
 
 pub struct ContractInstance {
     pub module: Module,
@@ -117,22 +119,24 @@ impl ContractInstance {
     ) -> ContractInstance {
         let alz = analyzer::from_json_schema(&file, SCHEMA_FOLDER);
 
-        ContractInstance {
-            module: md,
-            instance: inst,
-            wasm_file: file,
-            env: Env {
-                block: BlockInfo {
-                    height: 12_345,
-                    time: 1_571_797_419,
-                    time_nanos: 879305533,
-                    chain_id: CHAIN_ID.to_string(),
+        unsafe {
+            ContractInstance {
+                module: md,
+                instance: inst,
+                wasm_file: file,
+                env: Env {
+                    block: BlockInfo {
+                        height: BLOCK_HEIGHT,
+                        time: 1_571_797_419,
+                        time_nanos: 879305533,
+                        chain_id: CHAIN_ID.to_string(),
+                    },
+                    contract: ContractInfo {
+                        address: HumanAddr::from(contract_addr),
+                    },
                 },
-                contract: ContractInfo {
-                    address: HumanAddr::from(contract_addr),
-                },
-            },
-            analyzer: alz,
+                analyzer: alz,
+            }
         }
     }
 
@@ -200,6 +204,12 @@ impl ContractInstance {
                         ContractInstance::dump_result(&msg.key, msg.value.as_bytes(), len);
                     }
 
+                    // simulate block height increase for later expire check
+                    unsafe {
+                        BLOCK_HEIGHT += 1;
+                        self.env.block.height = BLOCK_HEIGHT;
+                    }
+
                     r#"{"message":"init succeeded"}"#.to_string()
                 }
                 ContractResult::Err(err) => {
@@ -233,6 +243,12 @@ impl ContractInstance {
                         .unwrap_or_default();
                     for msg in &val.attributes {
                         ContractInstance::dump_result(&msg.key, msg.value.as_bytes(), len);
+                    }
+
+                    // simulate block height increase for later expire check
+                    unsafe {
+                        BLOCK_HEIGHT += 1;
+                        self.env.block.height = BLOCK_HEIGHT;
                     }
 
                     r#"{"message":"handle succeeded"}"#.to_string()
