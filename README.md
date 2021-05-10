@@ -163,3 +163,4 @@ Call return msg [Execute Success]
 
 - More customization function
 - More features support
+- Enable native token swap

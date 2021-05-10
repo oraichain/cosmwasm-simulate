@@ -14,8 +14,8 @@ use crate::contract_vm::querier::WasmHandler;
 use clap::{App, Arg};
 use colored::*;
 use cosmwasm_std::{
-    from_slice, Binary, Coin, HumanAddr, MessageInfo, QuerierResult, SystemError, SystemResult,
-    Uint128, WasmQuery,
+    from_slice, Attribute, Binary, Coin, CosmosMsg, HumanAddr, MessageInfo, QuerierResult,
+    SystemError, SystemResult, Uint128, WasmMsg, WasmQuery,
 };
 use itertools::sorted;
 use rocket::fairing::{Fairing, Info, Kind};
@@ -193,6 +193,11 @@ fn to_json_item(name: &String, type_name: &str, engine: &ContractInstance) -> St
     // do not append optional when empty
     if data.is_empty() && optional {
         return String::new();
+    }
+
+    // if Binary then first char is not the base64 then encode it to base64
+    if strip_type_name.eq("Binary") && !data.chars().next().unwrap().is_alphabetic() {
+        data = base64::encode(data.as_bytes());
     }
 
     let mapped_type_name = match engine.analyzer.map_of_basetype.get(strip_type_name) {
@@ -695,13 +700,55 @@ fn load_artifacts(
     Ok(file_paths)
 }
 
+// handle_contract_response currently support execute only, with new message info from send fund param
+fn handle_contract_response(sender_addr: &str, messages: Vec<CosmosMsg>) -> Vec<Attribute> {
+    let mut attributes: Vec<Attribute> = vec![];
+    unsafe {
+        for msg in messages {
+            // only clone required properties
+            if let CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr,
+                msg,
+                send,
+            }) = &msg
+            {
+                let result = match ENGINES.get_mut(contract_addr.as_str()) {
+                    None => format!("No such contract: {}", contract_addr),
+                    Some(engine) => {
+                        engine.handle_raw(
+                            msg.as_slice(),
+                            &MessageInfo {
+                                sender: HumanAddr::from(sender_addr),
+                                // there is default account with balance
+                                sent_funds: send.clone(),
+                            },
+                        )
+                    }
+                };
+                attributes.push(Attribute {
+                    key: contract_addr.to_string(),
+                    value: result,
+                })
+            }
+        }
+    }
+
+    attributes
+}
+
 fn insert_engine(
     wasm_file: &str,
     contract_addr: &str,
     wasm_handler: WasmHandler,
     storage: &MockStorage,
 ) {
-    match ContractInstance::new_instance(wasm_file, contract_addr, wasm_handler, storage) {
+    match ContractInstance::new_instance(
+        wasm_file,
+        contract_addr,
+        wasm_handler,
+        storage,
+        handle_contract_response,
+    ) {
         Err(e) => {
             println!("error occurred during install contract: {}", e.red());
         }

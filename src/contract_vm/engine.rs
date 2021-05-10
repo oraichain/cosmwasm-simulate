@@ -5,7 +5,8 @@ extern crate serde_json;
 use colored::*;
 
 use cosmwasm_std::{
-    BlockInfo, Coin, ContractInfo, ContractResult, Empty, Env, HumanAddr, MessageInfo, Uint128,
+    Attribute, BlockInfo, Coin, ContractInfo, ContractResult, CosmosMsg, Empty, Env, HumanAddr,
+    MessageInfo, Uint128,
 };
 
 use cosmwasm_vm::{Instance, InstanceOptions, Size};
@@ -32,6 +33,8 @@ pub const CHAIN_ID: &str = "Oraichain";
 const SCHEMA_FOLDER: &str = "schema";
 
 pub static mut BLOCK_HEIGHT: u64 = 12_345;
+// callback handle for Handle Response, like send native balance, execute other smart contract
+pub type CallBackHandler = fn(&str, Vec<CosmosMsg>) -> Vec<Attribute>;
 
 pub struct ContractInstance {
     pub module: Module,
@@ -39,6 +42,7 @@ pub struct ContractInstance {
     pub wasm_file: String,
     pub env: Env,
     pub analyzer: analyzer::Analyzer,
+    pub handle_callback: CallBackHandler,
 }
 
 fn compiler() -> Box<dyn Compiler> {
@@ -56,6 +60,7 @@ impl ContractInstance {
         contract_addr: &str,
         query_wasm: WasmHandler,
         storage: &mock::MockStorage,
+        handle_callback: CallBackHandler,
     ) -> Result<Self, String> {
         let balances = &[Coin {
             denom: DENOM.to_string(),
@@ -104,6 +109,7 @@ impl ContractInstance {
             inst,
             wasm_file.to_string(),
             contract_addr,
+            handle_callback,
         ));
     }
 
@@ -116,6 +122,7 @@ impl ContractInstance {
         >,
         file: String,
         contract_addr: &str,
+        handle_callback: CallBackHandler,
     ) -> ContractInstance {
         let alz = analyzer::from_json_schema(&file, SCHEMA_FOLDER);
 
@@ -136,6 +143,7 @@ impl ContractInstance {
                     },
                 },
                 analyzer: alz,
+                handle_callback,
             }
         }
     }
@@ -158,6 +166,17 @@ impl ContractInstance {
                 desc.namespace.blue().bold(),
                 desc.name.yellow().bold()
             );
+        }
+    }
+
+    fn dump_results(attributes: &Vec<Attribute>) {
+        let len = attributes
+            .iter()
+            .map(|k| k.key.len())
+            .max()
+            .unwrap_or_default();
+        for msg in attributes {
+            ContractInstance::dump_result(&msg.key, msg.value.as_bytes(), len);
         }
     }
 
@@ -184,25 +203,22 @@ impl ContractInstance {
     }
 
     pub fn init(&mut self, param: &str, info: &MessageInfo) -> String {
-        let result = cosmwasm_vm::call_init::<_, _, _, Empty>(
-            &mut self.instance,
-            &self.env,
-            info,
-            param.as_bytes(),
-        );
+        self.init_raw(param.as_bytes(), info)
+    }
+
+    pub fn init_raw(&mut self, param: &[u8], info: &MessageInfo) -> String {
+        let result =
+            cosmwasm_vm::call_init::<_, _, _, Empty>(&mut self.instance, &self.env, info, param);
 
         match result {
             Ok(response) => match response {
                 ContractResult::Ok(val) => {
-                    let len = val
-                        .attributes
-                        .iter()
-                        .map(|k| k.key.len())
-                        .max()
-                        .unwrap_or_default();
-                    for msg in &val.attributes {
-                        ContractInstance::dump_result(&msg.key, msg.value.as_bytes(), len);
-                    }
+                    ContractInstance::dump_results(&(self.handle_callback)(
+                        self.env.contract.address.as_str(),
+                        val.messages,
+                    ));
+
+                    ContractInstance::dump_results(&val.attributes);
 
                     // simulate block height increase for later expire check
                     unsafe {
@@ -225,25 +241,22 @@ impl ContractInstance {
     }
 
     pub fn handle(&mut self, param: &str, info: &MessageInfo) -> String {
-        let result = cosmwasm_vm::call_handle::<_, _, _, Empty>(
-            &mut self.instance,
-            &self.env,
-            info,
-            param.as_bytes(),
-        );
+        self.handle_raw(param.as_bytes(), info)
+    }
+
+    pub fn handle_raw(&mut self, param: &[u8], info: &MessageInfo) -> String {
+        let result =
+            cosmwasm_vm::call_handle::<_, _, _, Empty>(&mut self.instance, &self.env, info, param);
 
         match result {
             Ok(response) => match response {
                 ContractResult::Ok(val) => {
-                    let len = val
-                        .attributes
-                        .iter()
-                        .map(|k| k.key.len())
-                        .max()
-                        .unwrap_or_default();
-                    for msg in &val.attributes {
-                        ContractInstance::dump_result(&msg.key, msg.value.as_bytes(), len);
-                    }
+                    ContractInstance::dump_results(&(self.handle_callback)(
+                        self.env.contract.address.as_str(),
+                        val.messages,
+                    ));
+
+                    ContractInstance::dump_results(&val.attributes);
 
                     // simulate block height increase for later expire check
                     unsafe {
@@ -267,9 +280,13 @@ impl ContractInstance {
     }
 
     pub fn query(&mut self, param: &str) -> String {
+        self.query_raw(param.as_bytes())
+    }
+
+    pub fn query_raw(&mut self, param: &[u8]) -> String {
         // check param if it is custom, we will try to check for oracle special query to implement, otherwise forward
         // to virtual machine
-        let result = cosmwasm_vm::call_query(&mut self.instance, &self.env, param.as_bytes());
+        let result = cosmwasm_vm::call_query(&mut self.instance, &self.env, param);
 
         match result {
             Ok(response) => match response {
