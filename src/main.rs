@@ -51,9 +51,10 @@ fn call_engine(
     account: Option<String>,
 ) -> Result<String, String> {
     unsafe {
-        let addr = match account {
-            Some(a) => a,
-            None => DEFAULT_SENDER_ADDR.to_string(),
+        // addr must not be empty
+        let mut addr = account.unwrap_or_default();
+        if addr.is_empty() {
+            addr = DEFAULT_SENDER_ADDR.to_string();
         };
 
         match ACCOUNTS.iter().find(|x| x.sender.to_string().eq(&addr)) {
