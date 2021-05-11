@@ -1,4 +1,4 @@
-//analyzer for json schema file
+// analyzer for json schema file
 
 use colored::*;
 use itertools::sorted;
@@ -142,28 +142,19 @@ impl Analyzer {
     }
 
     pub fn build_member(
-        required: &serde_json::Value,
         properties: &serde_json::Value,
         mem_name: &String,
         struct_type: &HashMap<String, HashMap<String, String>>,
         mapper: &mut HashMap<String, Vec<Member>>,
     ) -> bool {
-        let req_arr = match required.as_array() {
-            None => vec![],
-            Some(arr) => arr.to_vec(),
-        };
-
         // create new member vector
         mapper.insert(mem_name.to_owned(), Vec::new());
 
         // surely vec_mem is defined after above insertion
         let vec_mem = mapper.get_mut(mem_name).unwrap();
 
-        if req_arr.len() == 0 {
-            let type_name = match properties.get("$ref") {
-                None => return false,
-                Some(def_str) => get_member_name_from_definition(def_str.as_str().unwrap()),
-            };
+        if let Some(def_str) = properties.get("$ref") {
+            let type_name = get_member_name_from_definition(def_str.as_str().unwrap());
 
             match struct_type.get(type_name) {
                 None => return false,
@@ -173,7 +164,7 @@ impl Analyzer {
                             member_name: members.0.to_string(),
                             member_def: members.1.to_string(),
                         };
-                        vec_mem.insert(vec_mem.len(), member);
+                        vec_mem.push(member);
                     }
                 }
             };
@@ -181,7 +172,7 @@ impl Analyzer {
             // if require at least 1 param, surely properties has more than 1 item
             for (req_str, proper) in properties.as_object().unwrap() {
                 if let Some(member) = Self::get_member(req_str, proper) {
-                    vec_mem.insert(vec_mem.len(), member);
+                    vec_mem.push(member);
                 }
             }
         }
@@ -363,7 +354,6 @@ impl Analyzer {
                 };
 
                 Self::build_member(
-                    iter.1,
                     properties,
                     &title_must_exist.to_string(),
                     &self.map_of_struct,
@@ -377,8 +367,6 @@ impl Analyzer {
                     Some(a) => a,
                 };
                 for sub_item in array {
-                    //TODO: need more security&border check
-
                     let requreid = match sub_item.get("required") {
                         None => continue,
                         Some(r) => r,
@@ -402,17 +390,8 @@ impl Analyzer {
                         Some(pp) => pp,
                     };
 
-                    let target_required = match required.as_object() {
-                        None => continue,
-                        Some(target) => match target.get("required") {
-                            None => &serde_json::Value::Null,
-                            Some(m) => m,
-                        },
-                    };
-
                     if name != "null" {
                         Self::build_member(
-                            target_required,
                             properties,
                             &name.to_string(),
                             &self.map_of_struct,
