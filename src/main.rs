@@ -275,14 +275,18 @@ fn input_message(
         final_msg.push_str(name);
         final_msg.push_str("\":{");
     }
-
+    let mut option_values: String = String::new();
     for vcm in members {
-        final_msg
+        option_values
             .push_str(input_type(&vcm.member_name, &vcm.member_def.to_string(), engine).as_str());
     }
-    if members.len() > 0 {
-        final_msg.pop();
+
+    // if there is option value then push to msg
+    if option_values.len() > 0 {
+        option_values.pop();
+        final_msg.push_str(option_values.as_str());
     }
+
     final_msg.push('}');
 
     if *is_enum {
