@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
 use std::path::Path;
-use std::{fs, sync, thread, time};
+use std::{fs, sync, thread, time, vec};
 
 // default const is 'static lifetime
 const DEFAULT_SENDER_ADDR: &str = "fake_sender_addr";
@@ -542,21 +542,16 @@ fn simulate_by_auto_analyze(
                 }
             }
 
-            let msg = match msg_type.get(call_param.as_str()) {
-                None => {
-                    println!("can not find msg type {}", call_param.as_str());
-                    continue;
+            let json_msg = match msg_type.get(call_param.as_str()) {
+                None => "{}".to_string(),
+                Some(msg) => {
+                    engine.analyzer.show_message_type(call_param.as_str(), msg);
+                    input_message(call_param.as_str(), msg, engine, &is_enum)
                 }
-                Some(v) => v,
             };
 
-            engine.analyzer.show_message_type(call_param.as_str(), msg);
-
             // update previous history entries
-
             EDITOR.update_input_history_entry();
-
-            let json_msg = input_message(call_param.as_str(), msg, engine, &is_enum);
 
             engine.call(call_type.as_str(), json_msg.as_str(), info);
         }
