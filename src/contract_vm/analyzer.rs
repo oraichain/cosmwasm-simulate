@@ -91,7 +91,8 @@ impl Analyzer {
     pub fn get_member(req_str: &String, proper: &serde_json::Value) -> Option<Member> {
         let (type_name, optional) = get_type_name_from_definition(proper);
 
-        if type_name.is_empty() {
+        // object is empty because there is no more properties to handle
+        if type_name.is_empty() || type_name.eq("object") {
             return None;
         }
 
