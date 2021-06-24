@@ -33,8 +33,6 @@ const DEFAULT_SENDER_ADDR: &str = "fake_sender_addr";
 const DEFAULT_REPLICATED_LIMIT: usize = 1024;
 const DEFAULT_SENDER_BALANCE: u64 = 10_000_000_000_000_000;
 
-#[macro_use]
-extern crate lazy_mut;
 lazy_mut! {
     static mut EDITOR: TerminalEditor = TerminalEditor::new();
     static mut ENGINES : HashMap<String, ContractInstance> = HashMap::new();
