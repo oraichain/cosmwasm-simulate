@@ -2,7 +2,6 @@
 
 pub mod contract_vm;
 
-extern crate base64;
 extern crate clap;
 
 use crate::contract_vm::analyzer::{Member, INDENT};
@@ -14,8 +13,8 @@ use crate::contract_vm::querier::WasmHandler;
 use clap::{App, Arg};
 use colored::*;
 use cosmwasm_std::{
-    from_slice, Attribute, Binary, Coin, CosmosMsg, HumanAddr, MessageInfo, QuerierResult,
-    SystemError, SystemResult, Uint128, WasmMsg, WasmQuery,
+    from_slice, Addr, Attribute, Binary, Coin, CosmosMsg, MessageInfo, QuerierResult, SystemError,
+    SystemResult, Uint128, WasmMsg, WasmQuery,
 };
 use itertools::sorted;
 use rocket::fairing::{Fairing, Info, Kind};
@@ -58,8 +57,8 @@ fn call_engine(
         match ACCOUNTS.iter().find(|x| x.sender.to_string().eq(&addr)) {
             Some(info) => match ENGINES.get_mut(contract_addr) {
                 None => Err(format!("No such contract: {}", contract_addr)),
-                Some(engine) => match base64::decode(msg.as_bytes()) {
-                    Ok(input) => match String::from_utf8(input) {
+                Some(engine) => match Binary::from_base64(msg) {
+                    Ok(input) => match String::from_utf8(input.0) {
                         Ok(param) => Ok(engine.call(func_type, param.as_str(), info).to_owned()),
                         Err(err) => Err(err.to_string()),
                     },
@@ -71,17 +70,25 @@ fn call_engine(
     }
 }
 
-#[get("/contract/<address>/init/<msg>?<account>")]
-fn init_contract(address: String, msg: String, account: Option<String>) -> content::Json<String> {
-    match call_engine(address.as_str(), "init", msg.as_str(), account) {
+#[get("/contract/<address>/instantiate/<msg>?<account>")]
+fn instantiate_contract(
+    address: String,
+    msg: String,
+    account: Option<String>,
+) -> content::Json<String> {
+    match call_engine(address.as_str(), "instantiate", msg.as_str(), account) {
         Ok(data) => content::Json(format!(r#"{{"data": {}}}"#, data)),
         Err(err) => content::Json(format!(r#"{{"error": "{}"}}"#, err)),
     }
 }
 
-#[get("/contract/<address>/handle/<msg>?<account>")]
-fn handle_contract(address: String, msg: String, account: Option<String>) -> content::Json<String> {
-    match call_engine(address.as_str(), "handle", msg.as_str(), account) {
+#[get("/contract/<address>/execute/<msg>?<account>")]
+fn execute_contract(
+    address: String,
+    msg: String,
+    account: Option<String>,
+) -> content::Json<String> {
+    match call_engine(address.as_str(), "execute", msg.as_str(), account) {
         Ok(data) => content::Json(format!(r#"{{"data": {}}}"#, data)),
         Err(err) => content::Json(format!(r#"{{"error": "{}"}}"#, err)),
     }
@@ -131,7 +138,7 @@ fn start_server(port: u16) {
             .attach(CORS)
             .mount(
                 "/wasm",
-                routes![init_contract, handle_contract, query_contract],
+                routes![instantiate_contract, execute_contract, query_contract],
             )
             .launch()
     });
@@ -196,7 +203,7 @@ fn to_json_item(name: &String, type_name: &str, engine: &ContractInstance) -> St
 
     // if Binary then first char is not the base64 then encode it to base64
     if strip_type_name.eq("Binary") && !data.chars().next().unwrap().is_alphabetic() {
-        data = base64::encode(data.as_bytes());
+        data = Binary::from(data.as_bytes()).to_base64();
     }
 
     let mapped_type_name = match engine.analyzer.map_of_basetype.get(strip_type_name) {
@@ -299,8 +306,8 @@ fn input_message(
 fn get_call_type() -> Option<(String, bool, bool)> {
     let mut call_type = String::new();
     let mut params = vec![
-        "init".to_string(),
-        "handle".to_string(),
+        "instantiate".to_string(),
+        "execute".to_string(),
         "query".to_string(),
     ];
     let mut contract_switch = false;
@@ -308,8 +315,8 @@ fn get_call_type() -> Option<(String, bool, bool)> {
 
     print!(
         "Input call type ({} | {} | {}",
-        "init".green().bold(),
-        "handle".green().bold(),
+        "instantiate".green().bold(),
+        "execute".green().bold(),
         "query".green().bold(),
     );
     unsafe {
@@ -339,8 +346,8 @@ fn get_call_type() -> Option<(String, bool, bool)> {
             print!(
                 "Wrong call type [{}], must one of ({} | {} | {}",
                 call_type.red().bold(),
-                "init".green().bold(),
-                "handle".green().bold(),
+                "instantiate".green().bold(),
+                "execute".green().bold(),
                 "query".green().bold(),
             );
             if contract_switch {
@@ -443,7 +450,7 @@ fn simulate_by_auto_analyze(
             println!(
                 "Start_simulate with sender: {}, contract: {}, chain: {}, denom: {}, block height: {}",
                 sender_addr.green().bold(),
-                engine.env.contract.address.green().bold(),
+                engine.env.contract.address.to_string().green().bold(),
                 CHAIN_ID.green().bold(), DENOM.green().bold(), BLOCK_HEIGHT.to_string().green().bold()
             );
 
@@ -467,13 +474,14 @@ fn simulate_by_auto_analyze(
                     return Ok((true, engine.env.contract.address.to_string(), call_type));
                 }
                 continue;
-            } else if call_type.eq("init") && engine.analyzer.map_of_member.contains_key("InitMsg")
+            } else if call_type.eq("instantiate")
+                && engine.analyzer.map_of_member.contains_key("InstantiateMsg")
             {
-                call_param = "InitMsg".to_string();
-            } else if call_type.eq("handle")
-                && engine.analyzer.map_of_member.contains_key("HandleMsg")
+                call_param = "InstantiateMsg".to_string();
+            } else if call_type.eq("execute")
+                && engine.analyzer.map_of_member.contains_key("ExecuteMsg")
             {
-                call_param = "HandleMsg".to_string();
+                call_param = "ExecuteMsg".to_string();
             } else if call_type.eq("query")
                 && engine.analyzer.map_of_member.contains_key("QueryMsg")
             {
@@ -570,7 +578,7 @@ fn simulate_by_json(
             println!(
                 "Start_simulate with sender: {}, contract: {}, chain: {}, denom: {}, block height: {}",
                 sender_addr.green().bold(),
-                engine.env.contract.address.green().bold(),
+                engine.env.contract.address.to_string().green().bold(),
                 CHAIN_ID.green().bold(), DENOM.green().bold(), BLOCK_HEIGHT.to_string().green().bold()
             );
             let (call_type, contract_switch, account_switch) = match get_call_type() {
@@ -698,8 +706,8 @@ fn load_artifacts(
     Ok(file_paths)
 }
 
-// handle_contract_response currently support execute only, with new message info from send fund param
-fn handle_contract_response(sender_addr: &str, messages: Vec<CosmosMsg>) -> Vec<Attribute> {
+// execute_contract_response currently support execute only, with new message info from send fund param
+fn execute_contract_response(sender_addr: &str, messages: Vec<CosmosMsg>) -> Vec<Attribute> {
     let mut attributes: Vec<Attribute> = vec![];
     unsafe {
         for msg in messages {
@@ -713,12 +721,12 @@ fn handle_contract_response(sender_addr: &str, messages: Vec<CosmosMsg>) -> Vec<
                 let result = match ENGINES.get_mut(contract_addr.as_str()) {
                     None => format!("No such contract: {}", contract_addr),
                     Some(engine) => {
-                        engine.handle_raw(
+                        engine.execute_raw(
                             msg.as_slice(),
                             &MessageInfo {
-                                sender: HumanAddr::from(sender_addr),
+                                sender: Addr::unchecked(sender_addr),
                                 // there is default account with balance
-                                sent_funds: send.clone(),
+                                funds: send.clone(),
                             },
                         )
                     }
@@ -745,7 +753,7 @@ fn insert_engine(
         contract_addr,
         wasm_handler,
         storage,
-        handle_contract_response,
+        execute_contract_response,
     ) {
         Err(e) => {
             println!("error occurred during install contract: {}", e.red());
@@ -812,7 +820,7 @@ fn watch_and_update(
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct CointBalance {
-    pub address: HumanAddr,
+    pub address: Addr,
     pub amount: Uint128,
 }
 
@@ -838,9 +846,9 @@ fn prepare_command_line() -> bool {
 
     unsafe {
         ACCOUNTS.push(MessageInfo {
-            sender: HumanAddr(DEFAULT_SENDER_ADDR.to_string()),
+            sender: Addr::unchecked(DEFAULT_SENDER_ADDR),
             // there is default account with balance
-            sent_funds: vec![Coin {
+            funds: vec![Coin {
                 denom: DENOM.to_string(),
                 amount: Uint128::from(DEFAULT_SENDER_BALANCE),
             }],
@@ -860,7 +868,7 @@ fn prepare_command_line() -> bool {
                 };
                 ACCOUNTS.push(MessageInfo {
                     sender: coin_balance.address,
-                    sent_funds,
+                    funds: sent_funds,
                 });
             }
         }

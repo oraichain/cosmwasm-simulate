@@ -1,21 +1,19 @@
-extern crate base64;
 use cosmwasm_std::testing::MockQuerierCustomHandlerResult;
 use std::convert::TryInto;
 use std::ops::{Bound, RangeBounds};
 
 use cosmwasm_std::{
-    from_slice, to_binary, to_vec, Binary, Coin, ContractResult, CustomQuery, Empty, HumanAddr,
+    from_slice, to_binary, to_vec, Binary, Coin, ContractResult, CustomQuery, Empty,
     Querier as StdQuerier, QuerierResult, QueryRequest, SystemError, SystemResult,
 };
 
-use cosmwasm_std::{Order, KV};
+use cosmwasm_std::{Order, Pair};
 
 use cosmwasm_vm::testing::MockApi;
 use cosmwasm_vm::{Backend, BackendError, BackendResult, GasInfo, Querier, Storage};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
-use std::str::FromStr;
 
 use crate::contract_vm::querier::{CustomHandler, StdMockQuerier, WasmHandler};
 use crate::contract_vm::watcher;
@@ -39,7 +37,7 @@ pub struct MockQuerier<C: CustomQuery + DeserializeOwned = Empty> {
 
 impl<C: CustomQuery + DeserializeOwned> MockQuerier<C> {
     pub fn new(
-        balances: &[(&HumanAddr, &[Coin])],
+        balances: &[(&str, &[Coin])],
         custom_handler: CustomHandler<C>,
         wasm_handler: WasmHandler,
     ) -> Self {
@@ -49,7 +47,7 @@ impl<C: CustomQuery + DeserializeOwned> MockQuerier<C> {
     }
 
     // set a new balance for the given address and return the old balance
-    pub fn update_balance<U: Into<HumanAddr>>(
+    pub fn update_balance<U: Into<String>>(
         &mut self,
         addr: U,
         balance: Vec<Coin>,
@@ -133,72 +131,16 @@ impl MockQuerier {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
 /// An implementation of QueryRequest::Custom to show this works and can be extended in the contract
-pub enum SpecialQuery {
-    Fetch {
-        url: String,
-        method: Option<String>,
-        body: Option<String>,
-        headers: Option<Vec<String>>,
-    },
-}
-
-fn fetch(
-    url: &String,
-    method: &Option<String>,
-    body: &Option<String>,
-    headers: &Option<Vec<String>>,
-) -> MockQuerierCustomHandlerResult {
-    let mut req = match method {
-        Some(v) => ureq::request(v, url),
-        None => ureq::get(url),
-    };
-
-    // borrow ref
-    if headers.is_some() {
-        for line in headers.as_ref().unwrap() {
-            // if can parse Header
-            if let Ok(header) = ureq::Header::from_str(line) {
-                req = req.set(header.name(), header.value().unwrap_or_default());
-            }
-        }
-    }
-
-    let resp = match body {
-        Some(v) => req.send_string(v),
-        None => req.call(),
-    };
-
-    match resp {
-        Ok(response) => {
-            // return contract result
-            let input = response.into_string().unwrap_or_default();
-            // smart contract use base64 to decode bytes into structure
-            let result = base64::encode(input.as_bytes());
-            SystemResult::Ok(to_binary(&result).into())
-        }
-        Err(err) => SystemResult::Err(SystemError::InvalidRequest {
-            error: err.to_string(),
-            request: Binary::from(url.as_bytes()),
-        }),
-    }
-}
-
+pub enum SpecialQuery {}
 impl CustomQuery for SpecialQuery {}
 
 pub fn custom_query_execute(query: &SpecialQuery) -> MockQuerierCustomHandlerResult {
-    match query {
-        SpecialQuery::Fetch {
-            url,
-            method,
-            body,
-            headers,
-        } => fetch(url, method, body, headers),
-    }
+    SystemResult::Ok(to_binary(query).into())
 }
 
 #[derive(Default, Debug, Clone)]
 pub struct Iter {
-    data: Vec<KV>,
+    data: Vec<Pair>,
     position: usize,
 }
 
@@ -213,8 +155,8 @@ impl MockStorage {
         MockStorage::default()
     }
 
-    pub fn all(&mut self, iterator_id: u32) -> BackendResult<Vec<KV>> {
-        let mut out: Vec<KV> = Vec::new();
+    pub fn all(&mut self, iterator_id: u32) -> BackendResult<Vec<Pair>> {
+        let mut out: Vec<Pair> = Vec::new();
         let mut total = GasInfo::free();
         loop {
             let (result, info) = self.next(iterator_id);
@@ -249,7 +191,7 @@ impl Storage for MockStorage {
         let gas_info = GasInfo::with_externally_used(GAS_COST_RANGE);
         let bounds = range_bounds(start, end);
 
-        let values: Vec<KV> = match (bounds.start_bound(), bounds.end_bound()) {
+        let values: Vec<Pair> = match (bounds.start_bound(), bounds.end_bound()) {
             // BTreeMap.range panics if range is start > end.
             // However, this cases represent just empty range and we treat it as such.
             (Bound::Included(start), Bound::Excluded(end)) if start > end => Vec::new(),
@@ -274,7 +216,7 @@ impl Storage for MockStorage {
         (Ok(new_id), gas_info)
     }
 
-    fn next(&mut self, iterator_id: u32) -> BackendResult<Option<KV>> {
+    fn next(&mut self, iterator_id: u32) -> BackendResult<Option<Pair>> {
         let iterator = match self.iterators.get_mut(&iterator_id) {
             Some(i) => i,
             None => {
@@ -285,7 +227,8 @@ impl Storage for MockStorage {
             }
         };
 
-        let (value, gas_info): (Option<KV>, GasInfo) = if iterator.data.len() > iterator.position {
+        let (value, gas_info): (Option<Pair>, GasInfo) = if iterator.data.len() > iterator.position
+        {
             let item = iterator.data[iterator.position].clone();
             iterator.position += 1;
             let gas_cost = (item.0.len() + item.1.len()) as u64;
@@ -324,7 +267,7 @@ fn range_bounds(start: Option<&[u8]>, end: Option<&[u8]>) -> impl RangeBounds<Ve
 /// This is internal as it can change any time if the map implementation is swapped out.
 type BTreeMapPairRef<'a, T = Vec<u8>> = (&'a Vec<u8>, &'a T);
 
-fn clone_item<T: Clone>(item_ref: BTreeMapPairRef<T>) -> KV<T> {
+fn clone_item<T: Clone>(item_ref: BTreeMapPairRef<T>) -> Pair<T> {
     let (key, value) = item_ref;
     (key.clone(), value.clone())
 }
@@ -335,10 +278,9 @@ pub fn new_mock(
     wasm_handler: WasmHandler,
     storage: MockStorage,
 ) -> Backend<MockApi, MockStorage, MockQuerier<SpecialQuery>> {
-    let human_addr = HumanAddr::from(contract_addr);
     // update custom_querier
     let custom_querier: MockQuerier<SpecialQuery> = MockQuerier::new(
-        &[(&human_addr, contract_balance)],
+        &[(contract_addr, contract_balance)],
         Box::new(|query| -> MockQuerierCustomHandlerResult { custom_query_execute(&query) }),
         wasm_handler,
     );

@@ -5,8 +5,8 @@ extern crate serde_json;
 use colored::*;
 
 use cosmwasm_std::{
-    Attribute, BlockInfo, Coin, ContractInfo, ContractResult, CosmosMsg, Empty, Env, HumanAddr,
-    MessageInfo, Uint128,
+    Addr, Attribute, BlockInfo, Coin, ContractInfo, ContractResult, CosmosMsg, Empty, Env,
+    MessageInfo, Timestamp, Uint128,
 };
 
 use cosmwasm_vm::{Instance, InstanceOptions, Size};
@@ -91,10 +91,14 @@ impl ContractInstance {
         let inst_options = InstanceOptions {
             gas_limit: DEFAULT_GAS_LIMIT,
             /// Memory limit in bytes. Use a value that is divisible by the Wasm page size 65536, e.g. full MiBs.
-            memory_limit: DEFAULT_MEMORY_LIMIT,
             print_debug: DEFAULT_PRINT_DEBUG,
         };
-        let inst = match cosmwasm_vm::Instance::from_code(wasm.as_slice(), deps, inst_options) {
+        let inst = match cosmwasm_vm::Instance::from_code(
+            wasm.as_slice(),
+            deps,
+            inst_options,
+            Some(DEFAULT_MEMORY_LIMIT),
+        ) {
             Err(e) => {
                 println!(
                     "cosmwasm_vm::Instance::from_code return error {}",
@@ -134,12 +138,11 @@ impl ContractInstance {
                 env: Env {
                     block: BlockInfo {
                         height: BLOCK_HEIGHT,
-                        time: 1_571_797_419,
-                        time_nanos: 879305533,
+                        time: Timestamp::from_nanos(1_571_797_419_879_305_533),
                         chain_id: CHAIN_ID.to_string(),
                     },
                     contract: ContractInfo {
-                        address: HumanAddr::from(contract_addr),
+                        address: Addr::unchecked(contract_addr),
                     },
                 },
                 analyzer: alz,
@@ -202,13 +205,17 @@ impl ContractInstance {
         value_str
     }
 
-    pub fn init(&mut self, param: &str, info: &MessageInfo) -> String {
-        self.init_raw(param.as_bytes(), info)
+    pub fn instantiate(&mut self, param: &str, info: &MessageInfo) -> String {
+        self.instantiate_raw(param.as_bytes(), info)
     }
 
-    pub fn init_raw(&mut self, param: &[u8], info: &MessageInfo) -> String {
-        let result =
-            cosmwasm_vm::call_init::<_, _, _, Empty>(&mut self.instance, &self.env, info, param);
+    pub fn instantiate_raw(&mut self, param: &[u8], info: &MessageInfo) -> String {
+        let result = cosmwasm_vm::call_instantiate::<_, _, _, Empty>(
+            &mut self.instance,
+            &self.env,
+            info,
+            param,
+        );
 
         match result {
             Ok(response) => match response {
@@ -240,13 +247,13 @@ impl ContractInstance {
         }
     }
 
-    pub fn handle(&mut self, param: &str, info: &MessageInfo) -> String {
-        self.handle_raw(param.as_bytes(), info)
+    pub fn execute(&mut self, param: &str, info: &MessageInfo) -> String {
+        self.execute_raw(param.as_bytes(), info)
     }
 
-    pub fn handle_raw(&mut self, param: &[u8], info: &MessageInfo) -> String {
+    pub fn execute_raw(&mut self, param: &[u8], info: &MessageInfo) -> String {
         let result =
-            cosmwasm_vm::call_handle::<_, _, _, Empty>(&mut self.instance, &self.env, info, param);
+            cosmwasm_vm::call_execute::<_, _, _, Empty>(&mut self.instance, &self.env, info, param);
 
         match result {
             Ok(response) => match response {
@@ -315,8 +322,8 @@ impl ContractInstance {
         );
         let gas_init = self.instance.get_gas_left();
         let res = match func_type {
-            "init" => self.init(param, info),
-            "handle" => self.handle(param, info),
+            "instantiate" => self.instantiate(param, info),
+            "execute" => self.execute(param, info),
             "query" => self.query(param),
             _ => {
                 println!("wrong dispatcher call {}", func_type.green().bold());
