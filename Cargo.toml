@@ -30,3 +30,4 @@ ureq = "2.0.2"
 wasmer-middleware-common = "0.17"
 wasmer-runtime-core = "0.17"
 wasmer-singlepass-backend = "0.17"
+
