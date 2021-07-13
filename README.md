@@ -25,7 +25,10 @@ docker-compose exec simulate bash
 apt update -y
 # needed if install sccache
 apt install libssl-dev pkg-config -y && cargo install sccache
-RUSTFLAGS="-C link-arg=-s" RUSTC_WRAPPER=sccache CARGO_INCREMENTAL=1 cargo build --release
+RUSTC_WRAPPER=sccache
+RUSTFLAGS="-C link-arg=-s" CARGO_INCREMENTAL=1 cargo build --release
+# build with xargo
+RUSTFLAGS="-C link-arg=-s" CARGO_INCREMENTAL=1 xargo build --release
 # output is at target/release/cosmwasm-simulate
 apt install upx -y
 upx --best --lzma target/release/cosmwasm-simulate
