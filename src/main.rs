@@ -25,6 +25,7 @@ use rocket::{Request, Response};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
+use std::mem::transmute;
 use std::path::Path;
 use std::{fs, sync, thread, time, vec};
 
@@ -33,10 +34,24 @@ const DEFAULT_SENDER_ADDR: &str = "fake_sender_addr";
 const DEFAULT_REPLICATED_LIMIT: usize = 1024;
 const DEFAULT_SENDER_BALANCE: u64 = 10_000_000_000_000_000;
 
-lazy_mut! {
-    static mut EDITOR: TerminalEditor = TerminalEditor::new();
-    static mut ENGINES : HashMap<String, ContractInstance> = HashMap::new();
-    static mut ACCOUNTS : Vec<MessageInfo> = Vec::new();
+struct Config {
+    editor: TerminalEditor,
+    engines: HashMap<String, ContractInstance>,
+    accounts: Vec<MessageInfo>,
+}
+// using raw pointer with a life time to store static object
+static mut _DATA: *const Config = 0 as *const Config;
+impl Config {
+    unsafe fn get<'a>() -> &'a mut Config {
+        if _DATA.is_null() {
+            _DATA = transmute(Box::new(Config {
+                editor: TerminalEditor::new(),
+                engines: HashMap::new(),
+                accounts: Vec::new(),
+            }));
+        }
+        return transmute(_DATA);
+    }
 }
 
 #[macro_use]
@@ -55,8 +70,12 @@ fn call_engine(
             addr = DEFAULT_SENDER_ADDR.to_string();
         };
 
-        match ACCOUNTS.iter().find(|x| x.sender.to_string().eq(&addr)) {
-            Some(info) => match ENGINES.get_mut(contract_addr) {
+        let Config {
+            engines, accounts, ..
+        } = Config::get();
+
+        match accounts.iter().find(|x| x.sender.to_string().eq(&addr)) {
+            Some(info) => match engines.get_mut(contract_addr) {
                 None => Err(format!("No such contract: {}", contract_addr)),
                 Some(engine) => match base64::decode(msg.as_bytes()) {
                     Ok(input) => match String::from_utf8(input) {
@@ -139,9 +158,10 @@ fn start_server(port: u16) {
 
 fn query_wasm(request: &WasmQuery) -> QuerierResult {
     unsafe {
+        let Config { engines, .. } = Config::get();
         match request {
             WasmQuery::Smart { contract_addr, msg } => {
-                match ENGINES.get_mut(contract_addr.as_str()) {
+                match engines.get_mut(contract_addr.as_str()) {
                     None => SystemResult::Err(SystemError::NoSuchContract {
                         addr: contract_addr.to_owned(),
                     }),
@@ -186,7 +206,8 @@ fn to_json_item(name: &String, type_name: &str, engine: &ContractInstance) -> St
     let mut data: String = String::new();
 
     unsafe {
-        EDITOR.readline(&mut data, true);
+        let Config { editor, .. } = Config::get();
+        editor.readline(&mut data, true);
     }
 
     // do not append optional when empty
@@ -235,7 +256,8 @@ fn input_type(mem_name: &String, type_name: &String, engine: &ContractInstance) 
 
     if st.1.len() == 0 {
         unsafe {
-            EDITOR.readline(&mut params, true);
+            let Config { editor, .. } = Config::get();
+            editor.readline(&mut params, true);
         }
     } else {
         params.push('{');
@@ -313,10 +335,15 @@ fn get_call_type() -> Option<(String, bool, bool)> {
         "query".green().bold(),
     );
     unsafe {
-        if ENGINES.len() > 1 {
+        let Config {
+            engines,
+            accounts,
+            editor,
+        } = Config::get();
+        if engines.len() > 1 {
             contract_switch = true;
         }
-        if ACCOUNTS.len() > 1 {
+        if accounts.len() > 1 {
             account_switch = true;
         }
         if contract_switch {
@@ -329,11 +356,11 @@ fn get_call_type() -> Option<(String, bool, bool)> {
         }
 
         // clone params to use contains without moving problem
-        EDITOR.update_history_entries(params.clone());
+        editor.update_history_entries(params.clone());
 
         println!(")");
 
-        EDITOR.readline(&mut call_type, false);
+        editor.readline(&mut call_type, false);
 
         if !params.contains(&call_type) {
             print!(
@@ -359,24 +386,24 @@ fn get_call_type() -> Option<(String, bool, bool)> {
             let mut call_param = String::new();
             print!("Choose smart contract [ ");
 
-            EDITOR.clear_history();
+            editor.clear_history();
 
-            for k in sorted(ENGINES.keys()) {
+            for k in sorted(engines.keys()) {
                 if first {
                     first = false;
                 } else {
                     print!(" | ")
                 }
                 print!("{}", k.green().bold());
-                EDITOR.add_history_entry(k);
+                editor.add_history_entry(k);
             }
 
             print!(" ]\n");
 
-            EDITOR.readline(&mut call_param, false);
+            editor.readline(&mut call_param, false);
 
             // check contract existed
-            if ENGINES.get(&call_param).is_none() {
+            if engines.get(&call_param).is_none() {
                 println!("Smart contract {} not existed", call_param.red().bold());
                 return None;
             }
@@ -388,24 +415,24 @@ fn get_call_type() -> Option<(String, bool, bool)> {
             let mut call_param = String::new();
             print!("Choose account [ ");
 
-            EDITOR.clear_history();
+            editor.clear_history();
 
-            for info in ACCOUNTS.iter() {
+            for info in accounts.iter() {
                 if first {
                     first = false;
                 } else {
                     print!(" | ")
                 }
                 print!("{}", info.sender.as_str().green().bold());
-                EDITOR.add_history_entry(info.sender.as_str());
+                editor.add_history_entry(info.sender.as_str());
             }
 
             print!(" ]\n");
 
-            EDITOR.readline(&mut call_param, false);
+            editor.readline(&mut call_param, false);
 
             // check account existed
-            if !ACCOUNTS
+            if !accounts
                 .iter()
                 .map(|x| x.sender.to_string())
                 .collect::<Vec<String>>()
@@ -434,7 +461,10 @@ fn simulate_by_auto_analyze(
     }
 
     unsafe {
-        let info = match ACCOUNTS.iter().find(|x| x.sender.as_str().eq(sender_addr)) {
+        let Config {
+            accounts, editor, ..
+        } = Config::get();
+        let info = match accounts.iter().find(|x| x.sender.as_str().eq(sender_addr)) {
             Some(i) => i,
             None => return Err(format!("No account found: {}", sender_addr)),
         };
@@ -481,7 +511,7 @@ fn simulate_by_auto_analyze(
             } else {
                 print!("Input Call param from [ ");
 
-                EDITOR.clear_history();
+                editor.clear_history();
 
                 for k in sorted(engine.analyzer.map_of_member.keys()) {
                     if first {
@@ -490,12 +520,12 @@ fn simulate_by_auto_analyze(
                         print!(" | ")
                     }
                     print!("{}", k.green().bold());
-                    EDITOR.add_history_entry(k);
+                    editor.add_history_entry(k);
                 }
 
                 print!(" ]\n");
 
-                EDITOR.readline(&mut call_param, false);
+                editor.readline(&mut call_param, false);
             }
 
             // if there is anyOf, it is enum
@@ -522,7 +552,7 @@ fn simulate_by_auto_analyze(
                     print!("Input Call param from [ ");
                     first = true;
 
-                    EDITOR.clear_history();
+                    editor.clear_history();
                     for k in sorted(msg_type.keys()) {
                         if first {
                             first = false;
@@ -530,13 +560,13 @@ fn simulate_by_auto_analyze(
                             print!(" | ")
                         }
                         print!("{}", k.green().bold());
-                        EDITOR.add_history_entry(k);
+                        editor.add_history_entry(k);
                     }
 
                     print!(" ]\n");
                     call_param.clear();
 
-                    EDITOR.readline(&mut call_param, false);
+                    editor.readline(&mut call_param, false);
                 }
             }
 
@@ -549,7 +579,7 @@ fn simulate_by_auto_analyze(
             };
 
             // update previous history entries
-            EDITOR.update_input_history_entry();
+            editor.update_input_history_entry();
 
             engine.call(call_type.as_str(), json_msg.as_str(), info);
         }
@@ -561,7 +591,10 @@ fn simulate_by_json(
     sender_addr: &str,
 ) -> Result<(bool, String, String), String> {
     unsafe {
-        let info = match ACCOUNTS.iter().find(|x| x.sender.as_str().eq(sender_addr)) {
+        let Config {
+            accounts, editor, ..
+        } = Config::get();
+        let info = match accounts.iter().find(|x| x.sender.as_str().eq(sender_addr)) {
             Some(i) => i,
             None => return Err(format!("No account found: {}", sender_addr)),
         };
@@ -596,8 +629,8 @@ fn simulate_by_json(
             let mut json_msg = String::new();
             // update previous history entries
 
-            EDITOR.update_input_history_entry();
-            EDITOR.readline(&mut json_msg, true);
+            editor.update_input_history_entry();
+            editor.readline(&mut json_msg, true);
 
             engine.call(call_type.as_str(), json_msg.as_str(), info);
         }
@@ -610,7 +643,8 @@ fn start_simulate(
     sender_addr: &str,
 ) -> Result<(bool, String, String), String> {
     unsafe {
-        match ENGINES.get_mut(contract_addr) {
+        let Config { engines, .. } = Config::get();
+        match engines.get_mut(contract_addr) {
             Some(engine) => {
                 // enable debug
                 if cfg!(debug_assertions) {
@@ -702,6 +736,7 @@ fn load_artifacts(
 fn handle_contract_response(sender_addr: &str, messages: Vec<CosmosMsg>) -> Vec<Attribute> {
     let mut attributes: Vec<Attribute> = vec![];
     unsafe {
+        let Config { engines, .. } = Config::get();
         for msg in messages {
             // only clone required properties
             if let CosmosMsg::Wasm(WasmMsg::Execute {
@@ -710,7 +745,7 @@ fn handle_contract_response(sender_addr: &str, messages: Vec<CosmosMsg>) -> Vec<
                 send,
             }) = &msg
             {
-                let result = match ENGINES.get_mut(contract_addr.as_str()) {
+                let result = match engines.get_mut(contract_addr.as_str()) {
                     None => format!("No such contract: {}", contract_addr),
                     Some(engine) => {
                         engine.handle_raw(
@@ -751,7 +786,10 @@ fn insert_engine(
             println!("error occurred during install contract: {}", e.red());
         }
         Ok(engine) => {
-            unsafe { ENGINES.insert(contract_addr.to_owned(), engine) };
+            unsafe {
+                let Config { engines, .. } = Config::get();
+                engines.insert(contract_addr.to_owned(), engine)
+            };
         }
     };
 }
@@ -763,20 +801,20 @@ fn watch_and_update(
     // do not copy, use reference when loop
     let len = wasm_files.len();
     let mut modified_files: Vec<time::SystemTime> = vec![time::SystemTime::now(); len];
+    unsafe {
+        let Config { engines, .. } = Config::get();
+        loop {
+            for index in 0..len {
+                let (wasm_file, contract_addr) = &wasm_files[index];
 
-    loop {
-        for index in 0..len {
-            let (wasm_file, contract_addr) = &wasm_files[index];
-
-            if let Ok(modified_time) = fs::metadata(wasm_file)?.modified() {
-                if modified_time.eq(&modified_files[index]) {
-                    continue;
+                if let Ok(modified_time) = fs::metadata(wasm_file)?.modified() {
+                    if modified_time.eq(&modified_files[index]) {
+                        continue;
+                    }
+                    modified_files[index] = modified_time;
                 }
-                modified_files[index] = modified_time;
-            }
 
-            unsafe {
-                match ENGINES.get_mut(contract_addr) {
+                match engines.get_mut(contract_addr) {
                     Some(eng) => {
                         // sleep 100 miliseconds incase it notifies modification before build version is completed
                         thread::sleep(time::Duration::from_millis(100));
@@ -798,15 +836,15 @@ fn watch_and_update(
                     }
                 };
             }
-        }
 
-        // init all contracts first time, send the first contract to notify
-        if len > 0 {
-            sender.send(wasm_files[0].1.to_owned()).unwrap();
-        }
+            // init all contracts first time, send the first contract to notify
+            if len > 0 {
+                sender.send(wasm_files[0].1.to_owned()).unwrap();
+            }
 
-        // watch again every second
-        thread::sleep(time::Duration::from_millis(1000));
+            // watch again every second
+            thread::sleep(time::Duration::from_millis(1000));
+        }
     }
 }
 
@@ -837,7 +875,8 @@ fn prepare_command_line() -> bool {
         .get_matches();
 
     unsafe {
-        ACCOUNTS.push(MessageInfo {
+        let Config { accounts, .. } = Config::get();
+        accounts.push(MessageInfo {
             sender: HumanAddr(DEFAULT_SENDER_ADDR.to_string()),
             // there is default account with balance
             sent_funds: vec![Coin {
@@ -858,7 +897,7 @@ fn prepare_command_line() -> bool {
                         amount: coin_balance.amount,
                     }],
                 };
-                ACCOUNTS.push(MessageInfo {
+                accounts.push(MessageInfo {
                     sender: coin_balance.address,
                     sent_funds,
                 });
@@ -866,7 +905,8 @@ fn prepare_command_line() -> bool {
         }
 
         // Sort by sender address
-        ACCOUNTS.sort_by(|a, b| a.sender.cmp(&b.sender));
+
+        accounts.sort_by(|a, b| a.sender.cmp(&b.sender));
     }
 
     if let Some(port_str) = matches.value_of("port") {
@@ -894,11 +934,6 @@ fn prepare_command_line() -> bool {
         let (sender, receiver) = sync::mpsc::channel();
         // Spawn off an expensive computation
         thread::spawn(move || {
-            // trigger init lazy mut
-            unsafe {
-                ENGINES.init_once();
-            }
-
             if let Ok(ret) = watch_and_update(&sender, &wasm_files) {
                 return ret;
             }
@@ -909,12 +944,17 @@ fn prepare_command_line() -> bool {
         match receiver.recv() {
             Ok(contract_addr) => {
                 unsafe {
+                    let Config {
+                        accounts,
+                        engines,
+                        editor,
+                    } = Config::get();
                     // init the first suggested items
-                    for k in ACCOUNTS.iter() {
-                        EDITOR.add_input_history_entry(k.sender.to_string());
+                    for k in accounts.iter() {
+                        editor.add_input_history_entry(k.sender.to_string());
                     }
-                    for k in ENGINES.keys() {
-                        EDITOR.add_input_history_entry(k.to_owned());
+                    for k in engines.keys() {
+                        editor.add_input_history_entry(k.to_owned());
                     }
                 }
                 return start_simulate_forever(contract_addr.as_str(), DEFAULT_SENDER_ADDR);
