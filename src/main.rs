@@ -1,5 +1,3 @@
-#![feature(proc_macro_hygiene, decl_macro)]
-
 pub mod contract_vm;
 
 extern crate base64;
@@ -27,7 +25,6 @@ use std::{fs, sync, thread, time, vec};
 
 // default const is 'static lifetime
 const DEFAULT_SENDER_ADDR: &str = "fake_sender_addr";
-const DEFAULT_REPLICATED_LIMIT: usize = 1024;
 const DEFAULT_SENDER_BALANCE: u64 = 10_000_000_000_000_000;
 
 struct Config {
