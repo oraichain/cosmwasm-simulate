@@ -26,6 +26,7 @@ apt update -y
 # needed if install sccache
 apt install libssl-dev pkg-config -y && cargo install sccache
 RUSTC_WRAPPER=sccache
+# if unwind feature has been removed, do not use RUSTFLAGS="-C link-arg=-s", it is stripped by default
 RUSTFLAGS="-C link-arg=-s" CARGO_INCREMENTAL=1 cargo build --release
 # build with xargo
 RUSTFLAGS="-C link-arg=-s" CARGO_INCREMENTAL=1 xargo build --release
