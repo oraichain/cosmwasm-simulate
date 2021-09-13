@@ -29,7 +29,6 @@ serde = { version = "1.0.103", default-features = false, features = [
     "alloc",
 ] }
 serde_json = "1.0"
-ureq = "2.0.2"
 wasmer-middleware-common = "0.17.1"
 wasmer-runtime-core = "0.17.1"
 wasmer-singlepass-backend = { path = "lib/singlepass-backend" }
