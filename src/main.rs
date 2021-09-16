@@ -1,5 +1,3 @@
-#![feature(proc_macro_hygiene, decl_macro)]
-
 pub mod contract_vm;
 
 extern crate base64;
@@ -18,10 +16,6 @@ use cosmwasm_std::{
     SystemError, SystemResult, Uint128, WasmMsg, WasmQuery,
 };
 use itertools::sorted;
-use rocket::fairing::{Fairing, Info, Kind};
-use rocket::http::Header;
-use rocket::response::content;
-use rocket::{Request, Response};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
@@ -31,7 +25,6 @@ use std::{fs, sync, thread, time, vec};
 
 // default const is 'static lifetime
 const DEFAULT_SENDER_ADDR: &str = "fake_sender_addr";
-const DEFAULT_REPLICATED_LIMIT: usize = 1024;
 const DEFAULT_SENDER_BALANCE: u64 = 10_000_000_000_000_000;
 
 struct Config {
@@ -54,107 +47,6 @@ impl Config {
     }
 }
 
-#[macro_use]
-extern crate rocket;
-
-fn call_engine(
-    contract_addr: &str,
-    func_type: &str,
-    msg: &str,
-    account: Option<String>,
-) -> Result<String, String> {
-    unsafe {
-        // addr must not be empty
-        let mut addr = account.unwrap_or_default();
-        if addr.is_empty() {
-            addr = DEFAULT_SENDER_ADDR.to_string();
-        };
-
-        let Config {
-            engines, accounts, ..
-        } = Config::get();
-
-        match accounts.iter().find(|x| x.sender.to_string().eq(&addr)) {
-            Some(info) => match engines.get_mut(contract_addr) {
-                None => Err(format!("No such contract: {}", contract_addr)),
-                Some(engine) => match base64::decode(msg.as_bytes()) {
-                    Ok(input) => match String::from_utf8(input) {
-                        Ok(param) => Ok(engine.call(func_type, param.as_str(), info).to_owned()),
-                        Err(err) => Err(err.to_string()),
-                    },
-                    Err(err) => Err(err.to_string()),
-                },
-            },
-            None => Err(format!("No account found for {}", addr)),
-        }
-    }
-}
-
-#[get("/contract/<address>/init/<msg>?<account>")]
-fn init_contract(address: String, msg: String, account: Option<String>) -> content::Json<String> {
-    match call_engine(address.as_str(), "init", msg.as_str(), account) {
-        Ok(data) => content::Json(format!(r#"{{"data": {}}}"#, data)),
-        Err(err) => content::Json(format!(r#"{{"error": "{}"}}"#, err)),
-    }
-}
-
-#[get("/contract/<address>/handle/<msg>?<account>")]
-fn handle_contract(address: String, msg: String, account: Option<String>) -> content::Json<String> {
-    match call_engine(address.as_str(), "handle", msg.as_str(), account) {
-        Ok(data) => content::Json(format!(r#"{{"data": {}}}"#, data)),
-        Err(err) => content::Json(format!(r#"{{"error": "{}"}}"#, err)),
-    }
-}
-
-#[get("/contract/<address>/query/<msg>")]
-fn query_contract(address: String, msg: String) -> content::Json<String> {
-    match call_engine(address.as_str(), "query", msg.as_str(), None) {
-        Ok(data) => content::Json(format!(r#"{{"data": {}}}"#, data)),
-        Err(err) => content::Json(format!(r#"{{"error": "{}"}}"#, err)),
-    }
-}
-
-// empty struct
-pub struct CORS;
-
-impl Fairing for CORS {
-    fn info(&self) -> Info {
-        Info {
-            name: "Add CORS headers to requests",
-            kind: Kind::Response,
-        }
-    }
-
-    fn on_response(&self, _request: &Request, response: &mut Response) {
-        response.set_header(Header::new("Access-Control-Allow-Origin", "*"));
-        response.set_header(Header::new(
-            "Access-Control-Allow-Methods",
-            "POST, GET, OPTIONS",
-        ));
-        response.set_header(Header::new("Access-Control-Allow-Headers", "*"));
-        response.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
-    }
-}
-
-fn start_server(port: u16) {
-    // launch server
-    thread::spawn(move || {
-        let mut config = rocket::config::Config::new(rocket::config::Environment::Production);
-        config.set_port(port);
-        // prevent multi thread access for easier sharing each cpu
-        config.set_workers(1);
-        config.set_log_level(rocket::logger::LoggingLevel::Off);
-
-        // launch Restful
-        rocket::custom(config)
-            .attach(CORS)
-            .mount(
-                "/wasm",
-                routes![init_contract, handle_contract, query_contract],
-            )
-            .launch()
-    });
-}
 
 fn query_wasm(request: &WasmQuery) -> QuerierResult {
     unsafe {
@@ -863,8 +755,7 @@ fn prepare_command_line() -> bool {
             Arg::with_name("run")
                 .help("contract file that built by https://github.com/oraichain/smart-studio.git")
                 .empty_values(false),
-        )
-        .arg(Arg::with_name("port").help("port of restful server"))
+        )        
         .arg(Arg::from_usage(
             "-c, --contract=[CONTRACT_FOLDER] 'Other contract folder'",
         ))
@@ -909,20 +800,7 @@ fn prepare_command_line() -> bool {
         accounts.sort_by(|a, b| a.sender.cmp(&b.sender));
     }
 
-    if let Some(port_str) = matches.value_of("port") {
-        if let Ok(port) = port_str.parse() {
-            let debug = match std::env::var("DEBUG") {
-                Ok(s) => s.ne("false"),
-                _ => false,
-            };
-
-            if debug {
-                println!("🚀 Rest API Base URL: http://0.0.0.0:{}/wasm", port);
-            }
-
-            start_server(port);
-        }
-    }
+    
 
     if let Some(file) = matches.value_of("run") {
         // start load, check other file as well
