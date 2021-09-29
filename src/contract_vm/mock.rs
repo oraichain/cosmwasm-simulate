@@ -290,8 +290,11 @@ pub fn new_mock(
         Box::new(|query| -> MockQuerierCustomHandlerResult { custom_query_execute(&query) }),
         wasm_handler,
     );
+    let mut api = MockApi::default();
+    // orai default is 54
+    api.canonical_length = 54;
     Backend {
-        api: MockApi::default(),
+        api,
         storage,
         querier: custom_querier,
     }
