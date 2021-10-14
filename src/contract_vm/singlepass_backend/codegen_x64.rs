@@ -1,8 +1,8 @@
 #![allow(clippy::forget_copy)] // Used by dynasm.
 #![warn(unused_imports)]
 
-use crate::emitter_x64::*;
-use crate::machine::*;
+use crate::contract_vm::singlepass_backend::emitter_x64::*;
+use crate::contract_vm::singlepass_backend::machine::*;
 #[cfg(target_arch = "aarch64")]
 use dynasmrt::aarch64::Assembler;
 #[cfg(target_arch = "x86_64")]

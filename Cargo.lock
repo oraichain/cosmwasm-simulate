@@ -211,16 +211,24 @@ name = "cosmwasm-simulate"
 version = "0.13.2"
 dependencies = [
  "base64",
+ "bincode",
+ "byteorder",
  "clap",
  "colored",
  "cosmwasm-std",
  "cosmwasm-vm",
+ "dynasm",
+ "dynasmrt",
  "itertools",
+ "lazy_static",
+ "libc",
+ "nix 0.15.0",
  "rustyline",
  "rustyline-derive",
  "serde",
+ "serde_derive",
  "serde_json",
- "singlepass-backend",
+ "smallvec",
  "wasmer-middleware-common",
  "wasmer-runtime-core",
 ]
@@ -1258,23 +1266,6 @@ dependencies = [
  "cpufeatures",
  "digest 0.9.0",
  "opaque-debug",
-]
-
-[[package]]
-name = "singlepass-backend"
-version = "0.17.1"
-dependencies = [
- "bincode",
- "byteorder",
- "dynasm",
- "dynasmrt",
- "lazy_static",
- "libc",
- "nix 0.15.0",
- "serde",
- "serde_derive",
- "smallvec",
- "wasmer-runtime-core",
 ]
 
 [[package]]

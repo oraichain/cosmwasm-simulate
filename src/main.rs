@@ -1,3 +1,31 @@
+#![deny(
+    dead_code,
+    nonstandard_style,
+    unused_imports,
+    unused_mut,
+    unused_variables,
+    unused_unsafe,
+    unreachable_patterns
+)]
+
+#[cfg(not(any(
+    all(target_os = "freebsd", target_arch = "x86_64"),
+    all(target_os = "freebsd", target_arch = "aarch64"),
+    all(target_os = "macos", target_arch = "x86_64"),
+    all(target_os = "linux", target_arch = "x86_64"),
+    all(target_os = "linux", target_arch = "aarch64"),
+    all(target_os = "android", target_arch = "x86_64"),
+    all(target_os = "android", target_arch = "aarch64"),
+)))]
+compile_error!("This crate doesn't yet support compiling on operating systems and architectures other than these:
+       - FreeBSD and x86_64
+       - FreeBSD and AArch64
+       - macOS and x86_64
+       - Linux and x86_64
+       - Linux and AArch64
+       - Android and x86_64
+       - Android and AArch64");
+
 pub mod contract_vm;
 
 extern crate base64;
@@ -22,6 +50,23 @@ use std::io::{Error, ErrorKind};
 use std::mem::transmute;
 use std::path::Path;
 use std::{fs, sync, thread, time, vec};
+
+extern crate dynasmrt;
+
+extern crate serde;
+
+#[macro_use]
+extern crate serde_derive;
+
+#[macro_use]
+extern crate dynasm;
+
+#[macro_use]
+extern crate lazy_static;
+
+extern crate byteorder;
+#[macro_use]
+extern crate smallvec;
 
 // default const is 'static lifetime
 const DEFAULT_SENDER_ADDR: &str = "1mww0jfzs4clga5c49jnx7ht8lqh0s3tu82eprp";

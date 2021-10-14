@@ -1,4 +1,4 @@
-use crate::emitter_x64::*;
+use crate::contract_vm::singlepass_backend::emitter_x64::*;
 use smallvec::SmallVec;
 use std::collections::HashSet;
 use wasmer_runtime_core::{
