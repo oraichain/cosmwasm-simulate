@@ -24,7 +24,7 @@ use std::path::Path;
 use std::{fs, sync, thread, time, vec};
 
 // default const is 'static lifetime
-const DEFAULT_SENDER_ADDR: &str = "fake_sender_addr";
+const DEFAULT_SENDER_ADDR: &str = "1mww0jfzs4clga5c49jnx7ht8lqh0s3tu82eprp";
 const DEFAULT_SENDER_BALANCE: u64 = 10_000_000_000_000_000;
 
 struct Config {
@@ -46,7 +46,6 @@ impl Config {
         return transmute(_DATA);
     }
 }
-
 
 fn query_wasm(request: &WasmQuery) -> QuerierResult {
     unsafe {
@@ -755,7 +754,7 @@ fn prepare_command_line() -> bool {
             Arg::with_name("run")
                 .help("contract file that built by https://github.com/oraichain/smart-studio.git")
                 .empty_values(false),
-        )        
+        )
         .arg(Arg::from_usage(
             "-c, --contract=[CONTRACT_FOLDER] 'Other contract folder'",
         ))
@@ -767,14 +766,6 @@ fn prepare_command_line() -> bool {
 
     unsafe {
         let Config { accounts, .. } = Config::get();
-        accounts.push(MessageInfo {
-            sender: HumanAddr(DEFAULT_SENDER_ADDR.to_string()),
-            // there is default account with balance
-            sent_funds: vec![Coin {
-                denom: DENOM.to_string(),
-                amount: Uint128::from(DEFAULT_SENDER_BALANCE),
-            }],
-        });
 
         // add more balances
         if let Some(coin_balances) = matches.values_of("balance") {
@@ -793,14 +784,22 @@ fn prepare_command_line() -> bool {
                     sent_funds,
                 });
             }
+        } else {
+            // default account
+            accounts.push(MessageInfo {
+                sender: HumanAddr(format!("{}{}", DENOM, DEFAULT_SENDER_ADDR)),
+                // there is default account with balance
+                sent_funds: vec![Coin {
+                    denom: DENOM.to_string(),
+                    amount: Uint128::from(DEFAULT_SENDER_BALANCE),
+                }],
+            });
         }
 
         // Sort by sender address
 
         accounts.sort_by(|a, b| a.sender.cmp(&b.sender));
     }
-
-    
 
     if let Some(file) = matches.value_of("run") {
         // start load, check other file as well
