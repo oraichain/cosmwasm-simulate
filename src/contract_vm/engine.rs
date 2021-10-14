@@ -14,6 +14,7 @@ use cosmwasm_vm::{Instance, InstanceOptions, Size};
 use crate::contract_vm::querier::WasmHandler;
 use crate::contract_vm::{analyzer, mock};
 use cosmwasm_vm::testing::MockApi;
+use singlepass_backend::ModuleCodeGenerator as SinglePassMCG;
 use std::fmt::Write;
 use wasmer_middleware_common::metering;
 use wasmer_runtime_core::{
@@ -21,7 +22,6 @@ use wasmer_runtime_core::{
     codegen::{MiddlewareChain, StreamingCompiler},
     module::Module,
 };
-use wasmer_singlepass_backend::ModuleCodeGenerator as SinglePassMCG;
 
 const DEFAULT_CONTRACT_BALANCE: u64 = 10_000_000_000_000_000;
 const DEFAULT_GAS_LIMIT: u64 = 500_000_000_000_000;

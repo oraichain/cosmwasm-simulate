@@ -220,9 +220,9 @@ dependencies = [
  "rustyline-derive",
  "serde",
  "serde_json",
+ "singlepass-backend",
  "wasmer-middleware-common",
  "wasmer-runtime-core",
- "wasmer-singlepass-backend",
 ]
 
 [[package]]
@@ -1261,6 +1261,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "singlepass-backend"
+version = "0.17.1"
+dependencies = [
+ "bincode",
+ "byteorder",
+ "dynasm",
+ "dynasmrt",
+ "lazy_static",
+ "libc",
+ "nix 0.15.0",
+ "serde",
+ "serde_derive",
+ "smallvec",
+ "wasmer-runtime-core",
+]
+
+[[package]]
 name = "smallvec"
 version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1658,23 +1675,6 @@ dependencies = [
  "target-lexicon 0.10.0",
  "wasmparser 0.51.4",
  "winapi",
-]
-
-[[package]]
-name = "wasmer-singlepass-backend"
-version = "0.17.1"
-dependencies = [
- "bincode",
- "byteorder",
- "dynasm",
- "dynasmrt",
- "lazy_static",
- "libc",
- "nix 0.15.0",
- "serde",
- "serde_derive",
- "smallvec",
- "wasmer-runtime-core",
 ]
 
 [[package]]
