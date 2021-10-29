@@ -829,7 +829,10 @@ fn prepare_command_line() -> bool {
                     sent_funds,
                 });
             }
-        } else {
+        }
+
+        // default sender addr
+        if (accounts.is_empty()) {
             // default account
             accounts.push(MessageInfo {
                 sender: HumanAddr(format!("{}{}", DENOM, DEFAULT_SENDER_ADDR)),
