@@ -831,18 +831,15 @@ fn prepare_command_line() -> bool {
             }
         }
 
-        // default sender addr
-        if (accounts.is_empty()) {
-            // default account
-            accounts.push(MessageInfo {
-                sender: HumanAddr(format!("{}{}", DENOM, DEFAULT_SENDER_ADDR)),
-                // there is default account with balance
-                sent_funds: vec![Coin {
-                    denom: DENOM.to_string(),
-                    amount: Uint128::from(DEFAULT_SENDER_BALANCE),
-                }],
-            });
-        }
+        // default account
+        accounts.push(MessageInfo {
+            sender: HumanAddr(format!("{}{}", DENOM, DEFAULT_SENDER_ADDR)),
+            // there is default account with balance
+            sent_funds: vec![Coin {
+                denom: DENOM.to_string(),
+                amount: Uint128::from(DEFAULT_SENDER_BALANCE),
+            }],
+        });
 
         // Sort by sender address
 
