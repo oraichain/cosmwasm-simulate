@@ -2,7 +2,7 @@
 authors = ["tubackkhoa <tu@orai.io>"]
 edition = "2018"
 name = "cosmwasm-simulate"
-version = "0.13.2"
+version = "0.13.3"
 description = "Cosmwasm simulate"
 repository = "https://github.com/oraichain/cosmwasm-simulate"
 license = "MIT"
