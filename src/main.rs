@@ -69,7 +69,7 @@ extern crate byteorder;
 extern crate smallvec;
 
 // default const is 'static lifetime
-const DEFAULT_SENDER_ADDR: &str = "1mww0jfzs4clga5c49jnx7ht8lqh0s3tu82eprp";
+const DEFAULT_SENDER_ADDR: &str = "orai1mww0jfzs4clga5c49jnx7ht8lqh0s3tu82eprp";
 const DEFAULT_SENDER_BALANCE: u64 = 10_000_000_000_000_000;
 
 struct Config {
@@ -832,14 +832,16 @@ fn prepare_command_line() -> bool {
         }
 
         // default account
-        accounts.push(MessageInfo {
-            sender: HumanAddr(format!("{}{}", DENOM, DEFAULT_SENDER_ADDR)),
-            // there is default account with balance
-            sent_funds: vec![Coin {
-                denom: DENOM.to_string(),
-                amount: Uint128::from(DEFAULT_SENDER_BALANCE),
-            }],
-        });
+        if accounts.is_empty() {
+            accounts.push(MessageInfo {
+                sender: HumanAddr::from(DEFAULT_SENDER_ADDR),
+                // there is default account with balance
+                sent_funds: vec![Coin {
+                    denom: DENOM.to_string(),
+                    amount: Uint128::from(DEFAULT_SENDER_BALANCE),
+                }],
+            });
+        }
 
         // Sort by sender address
 
