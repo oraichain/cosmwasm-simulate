@@ -69,7 +69,7 @@ extern crate byteorder;
 extern crate smallvec;
 
 // default const is 'static lifetime
-const DEFAULT_SENDER_ADDR: &str = "orai1mww0jfzs4clga5c49jnx7ht8lqh0s3tu82eprp";
+const DEFAULT_SENDER_ADDR: &str = "1mww0jfzs4clga5c49jnx7ht8lqh0s3tu82eprp";
 const DEFAULT_SENDER_BALANCE: u64 = 10_000_000_000_000_000;
 
 struct Config {
@@ -809,6 +809,8 @@ fn prepare_command_line() -> bool {
         )
         .get_matches();
 
+    let default_addr;
+
     unsafe {
         let Config { accounts, .. } = Config::get();
 
@@ -834,7 +836,7 @@ fn prepare_command_line() -> bool {
         // default account
         if accounts.is_empty() {
             accounts.push(MessageInfo {
-                sender: HumanAddr::from(DEFAULT_SENDER_ADDR),
+                sender: HumanAddr::from(format!("{}{}", DENOM, DEFAULT_SENDER_ADDR)),
                 // there is default account with balance
                 sent_funds: vec![Coin {
                     denom: DENOM.to_string(),
@@ -844,8 +846,9 @@ fn prepare_command_line() -> bool {
         }
 
         // Sort by sender address
-
         accounts.sort_by(|a, b| a.sender.cmp(&b.sender));
+        // set default addr
+        default_addr = accounts[0].sender.as_str();
     }
 
     if let Some(file) = matches.value_of("run") {
@@ -881,7 +884,7 @@ fn prepare_command_line() -> bool {
                         editor.add_input_history_entry(k.to_owned());
                     }
                 }
-                return start_simulate_forever(contract_addr.as_str(), DEFAULT_SENDER_ADDR);
+                return start_simulate_forever(contract_addr.as_str(), default_addr);
             }
             Err(e) => {
                 println!("watch error: {}", e.to_string().red());
