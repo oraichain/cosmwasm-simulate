@@ -69,7 +69,7 @@ extern crate byteorder;
 extern crate smallvec;
 
 // default const is 'static lifetime
-const DEFAULT_SENDER_ADDR: &str = "1mww0jfzs4clga5c49jnx7ht8lqh0s3tu82eprp";
+const DEFAULT_SENDER_ADDR: &str = "fake_sender_addr";
 const DEFAULT_SENDER_BALANCE: u64 = 10_000_000_000_000_000;
 
 struct Config {
