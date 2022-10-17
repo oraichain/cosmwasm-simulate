@@ -5,53 +5,40 @@ extern crate serde_json;
 use colored::*;
 
 use cosmwasm_std::{
-    Attribute, BlockInfo, Coin, ContractInfo, ContractResult, CosmosMsg, Empty, Env, HumanAddr,
-    MessageInfo, Uint128,
+    Addr, Attribute, BlockInfo, Coin, ContractInfo, ContractResult, CosmosMsg, Empty, Env,
+    MessageInfo, Timestamp, Uint128,
 };
 
 use cosmwasm_vm::{Instance, InstanceOptions, Size};
 
 use crate::contract_vm::querier::WasmHandler;
-use crate::contract_vm::singlepass_backend::ModuleCodeGenerator as SinglePassMCG;
 use crate::contract_vm::{analyzer, mock};
 use cosmwasm_vm::testing::MockApi;
 use std::fmt::Write;
-use wasmer_middleware_common::metering;
-use wasmer_runtime_core::{
-    backend::Compiler,
-    codegen::{MiddlewareChain, StreamingCompiler},
-    module::Module,
-};
 
 const DEFAULT_CONTRACT_BALANCE: u64 = 10_000_000_000_000_000;
 const DEFAULT_GAS_LIMIT: u64 = 500_000_000_000_000;
-const COMPILE_GAS_LIMIT: u64 = 10_000_000_000;
 const DEFAULT_MEMORY_LIMIT: Size = Size::mebi(16);
-const DEFAULT_PRINT_DEBUG: bool = true;
 pub const DENOM: &str = "orai";
 pub const CHAIN_ID: &str = "Oraichain";
 const SCHEMA_FOLDER: &str = "schema";
 
+// Instance
+const DEFAULT_INSTANCE_OPTIONS: InstanceOptions = InstanceOptions {
+    gas_limit: DEFAULT_GAS_LIMIT,
+    print_debug: false,
+};
+
 pub static mut BLOCK_HEIGHT: u64 = 12_345;
-// callback handle for Handle Response, like send native balance, execute other smart contract
+// callback execute for Handle Response, like send native balance, execute other smart contract
 pub type CallBackHandler = fn(&str, Vec<CosmosMsg>) -> Vec<Attribute>;
 
 pub struct ContractInstance {
-    pub module: Module,
     pub instance: Instance<MockApi, mock::MockStorage, mock::MockQuerier<mock::SpecialQuery>>,
     pub wasm_file: String,
     pub env: Env,
     pub analyzer: analyzer::Analyzer,
-    pub handle_callback: CallBackHandler,
-}
-
-fn compiler() -> Box<dyn Compiler> {
-    let c: StreamingCompiler<SinglePassMCG, _, _, _, _> = StreamingCompiler::new(move || {
-        let mut chain = MiddlewareChain::new();
-        chain.push(metering::Metering::new(COMPILE_GAS_LIMIT));
-        chain
-    });
-    Box::new(c)
+    pub execute_callback: CallBackHandler,
 }
 
 impl ContractInstance {
@@ -60,7 +47,7 @@ impl ContractInstance {
         contract_addr: &str,
         query_wasm: WasmHandler,
         storage: &mock::MockStorage,
-        handle_callback: CallBackHandler,
+        execute_callback: CallBackHandler,
     ) -> Result<Self, String> {
         let balances = &[Coin {
             denom: DENOM.to_string(),
@@ -76,25 +63,12 @@ impl ContractInstance {
             println!("Compiling code [{}]", wasm_file.blue().bold());
         }
 
-        // compile then init instance wasmer
-        let md = match wasmer_runtime_core::compile_with(wasm.as_slice(), compiler().as_ref()) {
-            Err(e) => {
-                println!(
-                    "wasmer_runtime_core::compile_with return error {}",
-                    e.to_string().red()
-                );
-                return Err("Compile with code failed!".to_string());
-            }
-            Ok(m) => m,
-        };
-
-        let inst_options = InstanceOptions {
-            gas_limit: DEFAULT_GAS_LIMIT,
-            /// Memory limit in bytes. Use a value that is divisible by the Wasm page size 65536, e.g. full MiBs.
-            memory_limit: DEFAULT_MEMORY_LIMIT,
-            print_debug: DEFAULT_PRINT_DEBUG,
-        };
-        let inst = match cosmwasm_vm::Instance::from_code(wasm.as_slice(), deps, inst_options) {
+        let inst = match cosmwasm_vm::Instance::from_code(
+            wasm.as_slice(),
+            deps,
+            DEFAULT_INSTANCE_OPTIONS,
+            Some(DEFAULT_MEMORY_LIMIT),
+        ) {
             Err(e) => {
                 println!(
                     "cosmwasm_vm::Instance::from_code return error {}",
@@ -105,67 +79,43 @@ impl ContractInstance {
             Ok(i) => i,
         };
         return Ok(ContractInstance::make_instance(
-            md,
             inst,
-            wasm_file.to_string(),
+            wasm_file,
             contract_addr,
-            handle_callback,
+            execute_callback,
         ));
     }
 
     fn make_instance(
-        md: Module,
         inst: cosmwasm_vm::Instance<
             MockApi,
             mock::MockStorage,
             mock::MockQuerier<mock::SpecialQuery>,
         >,
-        file: String,
+        file: &str,
         contract_addr: &str,
-        handle_callback: CallBackHandler,
+        execute_callback: CallBackHandler,
     ) -> ContractInstance {
-        let alz = analyzer::from_json_schema(&file, SCHEMA_FOLDER);
+        let alz = analyzer::from_json_schema(file, SCHEMA_FOLDER);
 
         unsafe {
             ContractInstance {
-                module: md,
                 instance: inst,
-                wasm_file: file,
+                wasm_file: file.to_string(),
                 env: Env {
                     block: BlockInfo {
                         height: BLOCK_HEIGHT,
-                        time: 1_571_797_419,
-                        time_nanos: 879305533,
+                        time: Timestamp::from_seconds(1_571_797_419),
                         chain_id: CHAIN_ID.to_string(),
                     },
                     contract: ContractInfo {
-                        address: HumanAddr::from(contract_addr),
+                        address: Addr::unchecked(contract_addr),
                     },
+                    transaction: None,
                 },
                 analyzer: alz,
-                handle_callback,
+                execute_callback,
             }
-        }
-    }
-
-    pub fn show_module_info(&self) {
-        println!(
-            "showing wasm module info for [{}]",
-            self.wasm_file.blue().bold()
-        );
-        println!("backend : [{}]", self.module.info().backend.blue().bold());
-
-        println!("=============================== module info exported func name ===============================");
-        for exdesc in self.module.exports() {
-            println!("exported func name [{}]", exdesc.name.blue().bold());
-        }
-        println!("=============================== module info exported func name ===============================");
-        for desc in self.module.imports() {
-            println!(
-                "import descriptor name:[{}->{}]",
-                desc.namespace.blue().bold(),
-                desc.name.yellow().bold()
-            );
         }
     }
 
@@ -202,20 +152,24 @@ impl ContractInstance {
         value_str
     }
 
-    pub fn init(&mut self, param: &str, info: &MessageInfo) -> String {
-        self.init_raw(param.as_bytes(), info)
+    pub fn instantiate(&mut self, param: &str, info: &MessageInfo) -> String {
+        self.instantiate_raw(param.as_bytes(), info)
     }
 
-    pub fn init_raw(&mut self, param: &[u8], info: &MessageInfo) -> String {
-        let result =
-            cosmwasm_vm::call_init::<_, _, _, Empty>(&mut self.instance, &self.env, info, param);
+    pub fn instantiate_raw(&mut self, param: &[u8], info: &MessageInfo) -> String {
+        let result = cosmwasm_vm::call_instantiate::<_, _, _, Empty>(
+            &mut self.instance,
+            &self.env,
+            info,
+            param,
+        );
 
         match result {
             Ok(response) => match response {
                 ContractResult::Ok(val) => {
-                    ContractInstance::dump_results(&(self.handle_callback)(
+                    ContractInstance::dump_results(&(self.execute_callback)(
                         self.env.contract.address.as_str(),
-                        val.messages,
+                        val.messages.into_iter().map(|msg| msg.msg).collect(),
                     ));
 
                     ContractInstance::dump_results(&val.attributes);
@@ -240,20 +194,20 @@ impl ContractInstance {
         }
     }
 
-    pub fn handle(&mut self, param: &str, info: &MessageInfo) -> String {
-        self.handle_raw(param.as_bytes(), info)
+    pub fn execute(&mut self, param: &str, info: &MessageInfo) -> String {
+        self.execute_raw(param.as_bytes(), info)
     }
 
-    pub fn handle_raw(&mut self, param: &[u8], info: &MessageInfo) -> String {
+    pub fn execute_raw(&mut self, param: &[u8], info: &MessageInfo) -> String {
         let result =
-            cosmwasm_vm::call_handle::<_, _, _, Empty>(&mut self.instance, &self.env, info, param);
+            cosmwasm_vm::call_execute::<_, _, _, Empty>(&mut self.instance, &self.env, info, param);
 
         match result {
             Ok(response) => match response {
                 ContractResult::Ok(val) => {
-                    ContractInstance::dump_results(&(self.handle_callback)(
+                    ContractInstance::dump_results(&(self.execute_callback)(
                         self.env.contract.address.as_str(),
-                        val.messages,
+                        val.messages.into_iter().map(|msg| msg.msg).collect(),
                     ));
 
                     ContractInstance::dump_results(&val.attributes);
@@ -264,7 +218,7 @@ impl ContractInstance {
                         self.env.block.height = BLOCK_HEIGHT;
                     }
 
-                    r#"{"message":"handle succeeded"}"#.to_string()
+                    r#"{"message":"execute succeeded"}"#.to_string()
                 }
                 ContractResult::Err(err) => {
                     println!("{}", err.red());
@@ -315,8 +269,8 @@ impl ContractInstance {
         );
         let gas_init = self.instance.get_gas_left();
         let res = match func_type {
-            "init" => self.init(param, info),
-            "handle" => self.handle(param, info),
+            "instantiate" => self.instantiate(param, info),
+            "execute" => self.execute(param, info),
             "query" => self.query(param),
             _ => {
                 println!("wrong dispatcher call {}", func_type.green().bold());

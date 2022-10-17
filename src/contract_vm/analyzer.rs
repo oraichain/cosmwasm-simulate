@@ -465,7 +465,7 @@ impl Analyzer {
     }
 }
 
-pub fn from_json_schema(file_path: &String, schema_path: &str) -> Analyzer {
+pub fn from_json_schema(file_path: &str, schema_path: &str) -> Analyzer {
     let mut analyzer = Analyzer::default();
     let seg = match file_path.rfind('/') {
         None => return analyzer,

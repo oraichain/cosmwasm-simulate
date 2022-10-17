@@ -4,10 +4,10 @@ use std::collections::HashMap;
 
 use cosmwasm_std::testing::MockQuerierCustomHandlerResult;
 use cosmwasm_std::{
-    to_binary, AllBalanceResponse, AllDelegationsResponse, BalanceResponse, BankQuery, Binary,
-    BondedDenomResponse, Coin, ContractResult, CustomQuery, Empty, FullDelegation, HumanAddr,
-    QuerierResult, QueryRequest, StakingQuery, SystemResult, Validator, ValidatorsResponse,
-    WasmQuery,
+    to_binary, AllBalanceResponse, AllDelegationsResponse, AllValidatorsResponse, BalanceResponse,
+    BankQuery, Binary, BondedDenomResponse, Coin, ContractResult, CustomQuery, Empty,
+    FullDelegation, QuerierResult, QueryRequest, StakingQuery, SystemResult, Validator,
+    ValidatorResponse, WasmQuery,
 };
 
 /// DelegationResponse is data format returned from StakingRequest::Delegation query
@@ -36,7 +36,7 @@ pub struct StdMockQuerier<C: DeserializeOwned = Empty> {
 
 impl<C: DeserializeOwned> StdMockQuerier<C> {
     pub fn new(
-        balances: &[(&HumanAddr, &[Coin])],
+        balances: &[(&str, &[Coin])],
         custom_handler: CustomHandler<C>,
         wasm_handler: WasmHandler,
     ) -> Self {
@@ -50,22 +50,8 @@ impl<C: DeserializeOwned> StdMockQuerier<C> {
     }
 
     // set a new balance for the given address and return the old balance
-    pub fn update_balance<U: Into<HumanAddr>>(
-        &mut self,
-        addr: U,
-        balance: Vec<Coin>,
-    ) -> Option<Vec<Coin>> {
-        self.bank.balances.insert(addr.into(), balance)
-    }
-
-    #[cfg(feature = "staking")]
-    pub fn update_staking(
-        &mut self,
-        denom: &str,
-        validators: &[crate::query::Validator],
-        delegations: &[crate::query::FullDelegation],
-    ) {
-        self.staking = StakingQuerier::new(denom, validators, delegations);
+    pub fn update_balance(&mut self, addr: String, balance: Vec<Coin>) -> Option<Vec<Coin>> {
+        self.bank.balances.insert(addr, balance)
     }
 
     pub fn with_custom_handler<CH: 'static>(mut self, handler: CH) -> Self
@@ -84,20 +70,21 @@ impl<C: CustomQuery + DeserializeOwned> StdMockQuerier<C> {
             QueryRequest::Custom(custom_query) => (*self.custom_handler)(custom_query),
             QueryRequest::Staking(staking_query) => self.staking.query(staking_query),
             QueryRequest::Wasm(msg) => (self.wasm_handler)(msg),
+            _ => panic!("Not Implemented"),
         }
     }
 }
 
 #[derive(Clone, Default)]
 pub struct BankQuerier {
-    balances: HashMap<HumanAddr, Vec<Coin>>,
+    balances: HashMap<String, Vec<Coin>>,
 }
 
 impl BankQuerier {
-    pub fn new(balances: &[(&HumanAddr, &[Coin])]) -> Self {
+    pub fn new(balances: &[(&str, &[Coin])]) -> Self {
         let mut map = HashMap::new();
         for (addr, coins) in balances.iter() {
-            map.insert(HumanAddr::from(addr), coins.to_vec());
+            map.insert(addr.to_string(), coins.to_vec());
         }
         BankQuerier { balances: map }
     }
@@ -126,6 +113,7 @@ impl BankQuerier {
                 };
                 to_binary(&bank_res).into()
             }
+            _ => todo!(),
         };
         // system result is always ok in the mock implementation
         SystemResult::Ok(contract_result)
@@ -150,14 +138,18 @@ impl StakingQuerier {
 
     pub fn query(&self, request: &StakingQuery) -> QuerierResult {
         let contract_result: ContractResult<Binary> = match request {
-            StakingQuery::BondedDenom {} => {
-                let res = BondedDenomResponse {
-                    denom: self.denom.clone(),
-                };
+            StakingQuery::Validator { address } => {
+                let validator = self
+                    .validators
+                    .iter()
+                    .find(|v| v.address.eq(address))
+                    .cloned();
+
+                let res = ValidatorResponse { validator };
                 to_binary(&res).into()
             }
-            StakingQuery::Validators {} => {
-                let res = ValidatorsResponse {
+            StakingQuery::AllValidators {} => {
+                let res = AllValidatorsResponse {
                     validators: self.validators.clone(),
                 };
                 to_binary(&res).into()
@@ -183,6 +175,12 @@ impl StakingQuerier {
                     .find(|d| &d.delegator == delegator && &d.validator == validator);
                 let res = DelegationResponse {
                     delegation: delegation.cloned(),
+                };
+                to_binary(&res).into()
+            }
+            _ => {
+                let res = BondedDenomResponse {
+                    denom: self.denom.clone(),
                 };
                 to_binary(&res).into()
             }

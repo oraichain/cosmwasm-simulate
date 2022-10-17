@@ -1,34 +1,5 @@
-#![deny(
-    dead_code,
-    nonstandard_style,
-    unused_imports,
-    unused_mut,
-    unused_variables,
-    unused_unsafe,
-    unreachable_patterns
-)]
-
-#[cfg(not(any(
-    all(target_os = "freebsd", target_arch = "x86_64"),
-    all(target_os = "freebsd", target_arch = "aarch64"),
-    all(target_os = "macos", target_arch = "x86_64"),
-    all(target_os = "linux", target_arch = "x86_64"),
-    all(target_os = "linux", target_arch = "aarch64"),
-    all(target_os = "android", target_arch = "x86_64"),
-    all(target_os = "android", target_arch = "aarch64"),
-)))]
-compile_error!("This crate doesn't yet support compiling on operating systems and architectures other than these:
-       - FreeBSD and x86_64
-       - FreeBSD and AArch64
-       - macOS and x86_64
-       - Linux and x86_64
-       - Linux and AArch64
-       - Android and x86_64
-       - Android and AArch64");
-
 pub mod contract_vm;
 
-extern crate base64;
 extern crate clap;
 
 use crate::contract_vm::analyzer::{Member, INDENT};
@@ -40,8 +11,8 @@ use crate::contract_vm::querier::WasmHandler;
 use clap::{App, Arg};
 use colored::*;
 use cosmwasm_std::{
-    from_slice, Attribute, Binary, Coin, CosmosMsg, HumanAddr, MessageInfo, QuerierResult,
-    SystemError, SystemResult, Uint128, WasmMsg, WasmQuery,
+    from_slice, Addr, Attribute, Binary, Coin, CosmosMsg, MessageInfo, QuerierResult, SystemError,
+    SystemResult, Uint128, WasmMsg, WasmQuery,
 };
 use itertools::sorted;
 use serde::{Deserialize, Serialize};
@@ -50,23 +21,6 @@ use std::io::{Error, ErrorKind};
 use std::mem::transmute;
 use std::path::Path;
 use std::{fs, sync, thread, time, vec};
-
-extern crate dynasmrt;
-
-extern crate serde;
-
-#[macro_use]
-extern crate serde_derive;
-
-#[macro_use]
-extern crate dynasm;
-
-#[macro_use]
-extern crate lazy_static;
-
-extern crate byteorder;
-#[macro_use]
-extern crate smallvec;
 
 // default const is 'static lifetime
 const DEFAULT_SENDER_ADDR: &str = "fake_sender_addr";
@@ -153,7 +107,7 @@ fn to_json_item(name: &String, type_name: &str, engine: &ContractInstance) -> St
 
     // if Binary then first char is not the base64 then encode it to base64
     if strip_type_name.eq("Binary") && !data.chars().next().unwrap().is_alphabetic() {
-        data = base64::encode(data.as_bytes());
+        data = Binary::from(data.as_bytes()).to_base64();
     }
 
     let mapped_type_name = match engine.analyzer.map_of_basetype.get(strip_type_name) {
@@ -257,8 +211,8 @@ fn input_message(
 fn get_call_type() -> Option<(String, bool, bool)> {
     let mut call_type = String::new();
     let mut params = vec![
-        "init".to_string(),
-        "handle".to_string(),
+        "instantiate".to_string(),
+        "execute".to_string(),
         "query".to_string(),
     ];
     let mut contract_switch = false;
@@ -266,8 +220,8 @@ fn get_call_type() -> Option<(String, bool, bool)> {
 
     print!(
         "Input call type ({} | {} | {}",
-        "init".green().bold(),
-        "handle".green().bold(),
+        "instantiate".green().bold(),
+        "execute".green().bold(),
         "query".green().bold(),
     );
     unsafe {
@@ -302,8 +256,8 @@ fn get_call_type() -> Option<(String, bool, bool)> {
             print!(
                 "Wrong call type [{}], must one of ({} | {} | {}",
                 call_type.red().bold(),
-                "init".green().bold(),
-                "handle".green().bold(),
+                "instantiate".green().bold(),
+                "execute".green().bold(),
                 "query".green().bold(),
             );
             if contract_switch {
@@ -409,7 +363,7 @@ fn simulate_by_auto_analyze(
             println!(
                 "Start_simulate with sender: {}, contract: {}, chain: {}, denom: {}, block height: {}",
                 sender_addr.green().bold(),
-                engine.env.contract.address.green().bold(),
+                engine.env.contract.address.to_string().green().bold(),
                 CHAIN_ID.green().bold(), DENOM.green().bold(), BLOCK_HEIGHT.to_string().green().bold()
             );
 
@@ -433,10 +387,11 @@ fn simulate_by_auto_analyze(
                     return Ok((true, engine.env.contract.address.to_string(), call_type));
                 }
                 continue;
-            } else if call_type.eq("init") && engine.analyzer.map_of_member.contains_key("InitMsg")
+            } else if call_type.eq("instantiate")
+                && engine.analyzer.map_of_member.contains_key("InitMsg")
             {
                 call_param = "InitMsg".to_string();
-            } else if call_type.eq("handle")
+            } else if call_type.eq("execute")
                 && engine.analyzer.map_of_member.contains_key("HandleMsg")
             {
                 call_param = "HandleMsg".to_string();
@@ -539,7 +494,7 @@ fn simulate_by_json(
             println!(
                 "Start_simulate with sender: {}, contract: {}, chain: {}, denom: {}, block height: {}",
                 sender_addr.green().bold(),
-                engine.env.contract.address.green().bold(),
+                engine.env.contract.address.to_string().green().bold(),
                 CHAIN_ID.green().bold(), DENOM.green().bold(), BLOCK_HEIGHT.to_string().green().bold()
             );
             let (call_type, contract_switch, account_switch) = match get_call_type() {
@@ -582,10 +537,6 @@ fn start_simulate(
         let Config { engines, .. } = Config::get();
         match engines.get_mut(contract_addr) {
             Some(engine) => {
-                // enable debug
-                if cfg!(debug_assertions) {
-                    engine.show_module_info();
-                }
                 if engine.analyzer.map_of_member.is_empty() {
                     simulate_by_json(engine, sender_addr)
                 } else {
@@ -678,18 +629,18 @@ fn handle_contract_response(sender_addr: &str, messages: Vec<CosmosMsg>) -> Vec<
             if let CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr,
                 msg,
-                send,
-            }) = &msg
+                funds,
+            }) = msg
             {
                 let result = match engines.get_mut(contract_addr.as_str()) {
                     None => format!("No such contract: {}", contract_addr),
                     Some(engine) => {
-                        engine.handle_raw(
+                        engine.execute_raw(
                             msg.as_slice(),
                             &MessageInfo {
-                                sender: HumanAddr::from(sender_addr),
+                                sender: Addr::unchecked(sender_addr),
                                 // there is default account with balance
-                                sent_funds: send.clone(),
+                                funds,
                             },
                         )
                     }
@@ -786,7 +737,7 @@ fn watch_and_update(
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct CointBalance {
-    pub address: HumanAddr,
+    pub address: Addr,
     pub amount: Uint128,
 }
 
@@ -819,7 +770,7 @@ fn prepare_command_line() -> bool {
             for file in coin_balances.collect::<Vec<&str>>() {
                 let coin_balance: CointBalance = from_slice(file.as_bytes()).unwrap();
                 // add sent_funds if not zero
-                let sent_funds = match coin_balance.amount.is_zero() {
+                let funds = match coin_balance.amount.is_zero() {
                     true => vec![],
                     false => vec![Coin {
                         denom: DENOM.to_string(),
@@ -828,7 +779,7 @@ fn prepare_command_line() -> bool {
                 };
                 accounts.push(MessageInfo {
                     sender: coin_balance.address,
-                    sent_funds,
+                    funds,
                 });
             }
         }
@@ -836,9 +787,9 @@ fn prepare_command_line() -> bool {
         // default account
         if accounts.is_empty() {
             accounts.push(MessageInfo {
-                sender: HumanAddr::from(format!("{}{}", DENOM, DEFAULT_SENDER_ADDR)),
+                sender: Addr::unchecked(format!("{}{}", DENOM, DEFAULT_SENDER_ADDR)),
                 // there is default account with balance
-                sent_funds: vec![Coin {
+                funds: vec![Coin {
                     denom: DENOM.to_string(),
                     amount: Uint128::from(DEFAULT_SENDER_BALANCE),
                 }],
