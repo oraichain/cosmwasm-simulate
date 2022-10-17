@@ -23,7 +23,7 @@ panic = 'abort'
 clap = "2.33.3"
 colored = "2"
 cosmwasm-std = { git = "https://github.com/oraichain/cosmwasm", branch = "multiwasm-zk", features = ["iterator", "staking", "stargate"] }
-cosmwasm-vm = { git = "https://github.com/oraichain/cosmwasm", branch = "multiwasm-zk", features = ["cranelift", "iterator", "staking", "stargate"] }
+cosmwasm-vm = { git = "https://github.com/oraichain/cosmwasm", branch = "multiwasm-zk", features = ["iterator", "staking", "stargate"] }
 itertools = "0.10.0"
 rustyline = "8.0.0"
 rustyline-derive = "0.4.0"

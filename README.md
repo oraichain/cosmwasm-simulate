@@ -81,12 +81,12 @@ Input call type (init | handle | query | contract | account)
 init
 ```
 
-3 .Input Message type name`InitMsg` which will print out on screen
+3 .Input Message type name`InstantiateMsg` which will print out on screen
 
 ```shell script
-Input Call param from [ Constants | HandleMsg | QueryMsg | InitMsg | BalanceResponse | AllowanceResponse |  ]
-InitMsg
-InitMsg {
+Input Call param from [ Constants | ExecuteMsg | QueryMsg | InstantiateMsg | BalanceResponse | AllowanceResponse |  ]
+InstantiateMsg
+InstantiateMsg {
 	decimals : integer
 	initial_balances : InitialBalance :{
 		address : HumanAddr
@@ -139,7 +139,7 @@ Call return msg [Execute Success]
 ```shell script
 Input call type(init | handle | query):
 query
-Input Call param from [ Constants | HandleMsg | QueryMsg | InitMsg | BalanceResponse | AllowanceResponse |  ]
+Input Call param from [ Constants | ExecuteMsg | QueryMsg | InstantiateMsg | BalanceResponse | AllowanceResponse |  ]
 QueryMsg
 Input Call param from [ allowance | balance |  ]
 balance

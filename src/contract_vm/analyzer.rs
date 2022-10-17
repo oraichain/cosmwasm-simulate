@@ -311,15 +311,7 @@ impl Analyzer {
         return true;
     }
 
-    fn analyze_schema(&mut self, path: String) -> bool {
-        let data = match load_data_from_file(path.as_str()) {
-            Err(_e) => return false,
-            Ok(code) => code,
-        };
-        let translated: serde_json::Value = match serde_json::from_slice(data.as_slice()) {
-            Ok(trs) => trs,
-            Err(_e) => return false,
-        };
+    fn analyze_schema_object(&mut self, translated: &serde_json::Value) -> bool {
         let title_must_exist = match translated["title"].as_str() {
             None => return false,
             Some(title) => title,
@@ -336,6 +328,7 @@ impl Analyzer {
             None => return false,
             Some(c) => c,
         };
+
         // prepare definitions before analyzing
         for iter in mapping.iter() {
             if iter.0 == "definitions" {
@@ -360,7 +353,7 @@ impl Analyzer {
                     &self.map_of_struct,
                     &mut current_member,
                 );
-            } else if iter.0 == "anyOf" {
+            } else if iter.0 == "anyOf" || iter.0 == "oneOf" {
                 self.map_of_enum.insert(title_must_exist.to_string(), true);
 
                 let array: &Vec<serde_json::Value> = match iter.1.as_array() {
@@ -455,8 +448,31 @@ impl Analyzer {
             Ok(f) => f,
         };
 
+        let mut translated_list = vec![];
         for file in all_json_file {
-            if !self.analyze_schema(file.unwrap().path().display().to_string()) {
+            let data =
+                match load_data_from_file(file.unwrap().path().display().to_string().as_str()) {
+                    Err(_e) => return false,
+                    Ok(code) => code,
+                };
+            let translated: serde_json::Value = match serde_json::from_slice(data.as_slice()) {
+                Ok(trs) => trs,
+                Err(_e) => return false,
+            };
+
+            // try with sub-object for new schema
+            if translated["contract_name"].is_string() {
+                translated_list.push(translated["instantiate"].clone());
+                translated_list.push(translated["execute"].clone());
+                translated_list.push(translated["query"].clone());
+            } else {
+                translated_list.push(translated.clone());
+            }
+        }
+
+        for object in translated_list.iter() {
+            if !self.analyze_schema_object(object) {
+                println!("schema error: {}", object.to_string().red());
                 return false;
             }
         }
@@ -494,4 +510,13 @@ pub fn load_data_from_file(path: &str) -> Result<Vec<u8>, String> {
         Ok(sz) => sz,
     };
     Ok(data)
+}
+
+#[test]
+fn test_analyzer() {
+    let analyzer = from_json_schema(
+        "../cosmwasm-mixer/contracts/mixer/artifacts/mixer.wasm",
+        "schema",
+    );
+    println!("{:?}", analyzer.dump_all_members());
 }

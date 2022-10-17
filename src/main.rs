@@ -388,13 +388,13 @@ fn simulate_by_auto_analyze(
                 }
                 continue;
             } else if call_type.eq("instantiate")
-                && engine.analyzer.map_of_member.contains_key("InitMsg")
+                && engine.analyzer.map_of_member.contains_key("InstantiateMsg")
             {
-                call_param = "InitMsg".to_string();
+                call_param = "InstantiateMsg".to_string();
             } else if call_type.eq("execute")
-                && engine.analyzer.map_of_member.contains_key("HandleMsg")
+                && engine.analyzer.map_of_member.contains_key("ExecuteMsg")
             {
-                call_param = "HandleMsg".to_string();
+                call_param = "ExecuteMsg".to_string();
             } else if call_type.eq("query")
                 && engine.analyzer.map_of_member.contains_key("QueryMsg")
             {
